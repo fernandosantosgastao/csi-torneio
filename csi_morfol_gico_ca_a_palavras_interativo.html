@@ -1,0 +1,1101 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>CSI Morfológico: Caça-Palavras de Investigação</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&family=Special+Elite&display=swap" rel="stylesheet">
+    <style>
+        /* Estilos personalizados para estética de dossiê de investigação e interação tátil */
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #0b0f19;
+            background-image: 
+                radial-gradient(circle at 15% 15%, rgba(127, 29, 29, 0.14) 0%, transparent 45%),
+                radial-gradient(circle at 85% 85%, rgba(30, 58, 138, 0.14) 0%, transparent 45%);
+            color: #e2e8f0;
+            overflow-x: hidden;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        .font-typewriter {
+            font-family: 'Special Elite', cursive, serif;
+        }
+
+        .font-mono-grid {
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        /* Grade do Caça-Palavras sem scroll acidental durante o arraste */
+        #word-grid {
+            touch-action: none;
+            display: grid;
+            grid-template-columns: repeat(14, minmax(0, 1fr));
+            gap: 2px;
+        }
+
+        @media (min-width: 640px) {
+            #word-grid {
+                gap: 4px;
+            }
+        }
+
+        .grid-cell {
+            aspect-ratio: 1 / 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: transform 0.1s ease, background-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+            position: relative;
+        }
+
+        .grid-cell:hover {
+            background-color: rgba(51, 65, 85, 0.9);
+        }
+
+        .grid-cell.selecting {
+            background-color: #f59e0b !important;
+            color: #0f172a !important;
+            transform: scale(1.08);
+            z-index: 10;
+            box-shadow: 0 0 12px rgba(245, 158, 11, 0.65);
+        }
+
+        /* Animações suaves */
+        @keyframes pulseGlow {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.4); }
+            50% { box-shadow: 0 0 16px 4px rgba(220, 38, 38, 0.25); }
+        }
+
+        .dossier-card {
+            background: rgba(15, 23, 42, 0.88);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(71, 85, 105, 0.45);
+        }
+
+        .story-highlight {
+            transition: all 0.25s ease;
+            padding: 1px 4px;
+            border-radius: 4px;
+        }
+
+        .story-highlight.found {
+            text-decoration: line-through;
+            opacity: 0.75;
+        }
+
+        /* Barra de rolagem discreta */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #0f172a;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #334155;
+            border-radius: 3px;
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col">
+
+    <!-- Cabeçalho / Painel de Controle Superior -->
+    <header class="sticky top-0 z-30 bg-slate-950/90 backdrop-blur-md border-b border-slate-800 px-4 py-3 shadow-lg">
+        <div class="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-3">
+            <!-- Título e Distintivo -->
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-xl bg-red-950/90 border border-red-700/60 flex items-center justify-center shadow-inner">
+                    <svg class="w-6 h-6 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+                    </svg>
+                </div>
+                <div>
+                    <div class="flex items-center gap-2">
+                        <h1 class="text-base sm:text-lg font-extrabold tracking-wider uppercase text-slate-100">CSI Morfológico</h1>
+                        <span class="hidden sm:inline-block text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 rounded bg-red-900/50 text-red-300 border border-red-700/50">Caso #04</span>
+                    </div>
+                    <p class="text-xs text-slate-400">O Mistério do Casarão — Análise de Classes Gramaticais</p>
+                </div>
+            </div>
+
+            <!-- HUD: Pontos, Progresso, Cronômetro e Controles -->
+            <div class="flex items-center gap-2 sm:gap-4 flex-wrap">
+                <!-- Placar -->
+                <div class="bg-slate-900 border border-slate-700/80 rounded-xl px-3 py-1.5 flex items-center gap-2">
+                    <span class="text-[11px] uppercase tracking-wider text-slate-400 font-semibold">Pontos</span>
+                    <span id="score-display" class="text-base sm:text-lg font-extrabold font-mono-grid text-amber-400">0</span>
+                </div>
+
+                <!-- Progresso -->
+                <div class="bg-slate-900 border border-slate-700/80 rounded-xl px-3 py-1.5 flex items-center gap-2">
+                    <span class="text-[11px] uppercase tracking-wider text-slate-400 font-semibold">Pistas</span>
+                    <span id="progress-text" class="text-sm sm:text-base font-bold font-mono-grid text-emerald-400">0/16</span>
+                </div>
+
+                <!-- Cronômetro Opcional -->
+                <button id="timer-toggle-btn" title="Clique para pausar/retomar o cronômetro" class="bg-slate-900 hover:bg-slate-800 border border-slate-700/80 rounded-xl px-3 py-1.5 flex items-center gap-1.5 transition cursor-pointer">
+                    <svg id="timer-icon" class="w-4 h-4 text-sky-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                    </svg>
+                    <span id="timer-display" class="text-sm font-mono-grid font-semibold text-slate-200">00:00</span>
+                </button>
+
+                <!-- Botão de Dica / Instruções -->
+                <button id="help-btn" title="Como jogar" class="p-2 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-700/80 text-slate-300 transition cursor-pointer">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                    </svg>
+                </button>
+
+                <!-- Botão de Som -->
+                <button id="sound-btn" title="Alternar efeitos sonoros" class="p-2 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-700/80 text-slate-300 transition cursor-pointer">
+                    <svg id="sound-on-icon" class="w-5 h-5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z"></path>
+                    </svg>
+                    <svg id="sound-off-icon" class="w-5 h-5 text-slate-500 hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15zM17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2"></path>
+                    </svg>
+                </button>
+
+                <!-- Reiniciar -->
+                <button id="reset-btn" title="Gerar novo tabuleiro" class="px-3 py-2 rounded-xl bg-red-950/70 hover:bg-red-900/80 border border-red-800/70 text-red-200 text-xs font-bold uppercase tracking-wider transition cursor-pointer">
+                    Novo Jogo
+                </button>
+            </div>
+        </div>
+        <!-- Barra de progresso visual -->
+        <div class="max-w-7xl mx-auto mt-2.5 h-1.5 bg-slate-800 rounded-full overflow-hidden">
+            <div id="progress-bar" class="h-full bg-gradient-to-r from-amber-500 via-emerald-500 to-teal-400 transition-all duration-500" style="width: 0%;"></div>
+        </div>
+    </header>
+
+    <!-- Área Principal -->
+    <main class="flex-1 max-w-7xl w-full mx-auto p-3 sm:p-5 grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
+
+        <!-- Coluna Esquerda: Dossiê do Texto + Lista de Pistas -->
+        <section class="lg:col-span-5 flex flex-col gap-4">
+            
+            <!-- Card do Conto de Suspense -->
+            <div class="dossier-card rounded-2xl p-4 sm:p-5 shadow-xl relative overflow-hidden">
+                <div class="flex items-center justify-between border-b border-slate-700/70 pb-2.5 mb-3">
+                    <div class="flex items-center gap-2">
+                        <span class="w-2.5 h-2.5 rounded-full bg-red-500 animate-pulse"></span>
+                        <h2 class="text-xs sm:text-sm font-extrabold uppercase tracking-widest text-red-400">Depoimento Registrado: "A última batida"</h2>
+                    </div>
+                    <span class="text-[11px] font-mono-grid text-slate-400">CONTEXTO</span>
+                </div>
+
+                <div id="story-container" class="space-y-2.5 text-sm sm:text-base leading-relaxed text-slate-200 bg-slate-950/60 p-3.5 rounded-xl border border-slate-800/90">
+                    <!-- Preenchido dinamicamente pelo JS para sincronizar destaques -->
+                </div>
+
+                <p class="mt-2.5 text-xs text-slate-400 flex items-center gap-1.5">
+                    <svg class="w-4 h-4 text-amber-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                    </svg>
+                    <span>Observe a função de cada palavra numerada na frase antes de classificá-la.</span>
+                </p>
+            </div>
+
+            <!-- Card da Lista de Palavras-Chave (Evidências) -->
+            <div class="dossier-card rounded-2xl p-4 sm:p-5 shadow-xl">
+                <div class="flex items-center justify-between border-b border-slate-700/70 pb-2.5 mb-3">
+                    <h2 class="text-xs sm:text-sm font-extrabold uppercase tracking-widest text-slate-200">Evidências a Localizar</h2>
+                    <span class="text-xs text-slate-400">Arraste na grade para marcar</span>
+                </div>
+
+                <div id="word-list" class="grid grid-cols-2 sm:grid-cols-2 gap-2">
+                    <!-- Preenchido dinamicamente -->
+                </div>
+
+                <!-- Legenda das Cores das Classes -->
+                <div class="mt-4 pt-3 border-t border-slate-800">
+                    <p class="text-[11px] uppercase tracking-wider text-slate-400 font-semibold mb-2">Código de Cores por Classe:</p>
+                    <div id="class-legend" class="flex flex-wrap gap-1.5">
+                        <!-- Preenchido dinamicamente -->
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Coluna Direita: Grade Interativa do Caça-Palavras -->
+        <section class="lg:col-span-7 flex flex-col items-center">
+            <div class="dossier-card rounded-2xl p-3 sm:p-5 shadow-2xl w-full max-w-[620px]">
+                <div class="flex items-center justify-between mb-3 px-1">
+                    <span class="text-xs font-bold uppercase tracking-wider text-slate-400">Matriz de Varredura (14×14)</span>
+                    <span id="selection-preview" class="text-xs sm:text-sm font-mono-grid font-bold text-amber-400 h-5 tracking-widest"></span>
+                </div>
+
+                <!-- Grade 14x14 -->
+                <div id="word-grid" class="bg-slate-950/90 p-2 sm:p-3 rounded-xl border border-slate-800 shadow-inner mx-auto">
+                    <!-- Células geradas via JS -->
+                </div>
+
+                <div class="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-400 px-1">
+                    <span>Direções: Horizontal, Vertical e Diagonal</span>
+                    <span>Dica: Clique na letra inicial e arraste até a final</span>
+                </div>
+            </div>
+        </section>
+
+    </main>
+
+    <!-- MODAL 1: Desafio de Classificação Gramatical -->
+    <div id="classification-modal" class="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-sm hidden items-center justify-center p-4">
+        <div class="bg-slate-900 border-2 border-amber-500/70 rounded-2xl max-w-lg w-full p-5 sm:p-6 shadow-2xl transform transition-all">
+            <div class="flex items-center justify-between border-b border-slate-800 pb-3 mb-4">
+                <div class="flex items-center gap-2">
+                    <span class="px-2.5 py-1 rounded-lg bg-amber-500/20 text-amber-300 font-mono-grid text-xs font-bold border border-amber-500/40" id="modal-word-num">PISTA #00</span>
+                    <h3 class="text-base sm:text-lg font-extrabold text-slate-100 uppercase tracking-wide">Evidência Localizada!</h3>
+                </div>
+                <span id="modal-attempt-badge" class="text-xs font-semibold px-2.5 py-1 rounded-full bg-emerald-950 text-emerald-300 border border-emerald-700/50">1ª Tentativa (+150 pts)</span>
+            </div>
+
+            <!-- Palavra e Contexto no Texto -->
+            <div class="bg-slate-950/80 border border-slate-800 rounded-xl p-4 mb-4">
+                <div class="text-center mb-2">
+                    <span class="text-xs uppercase tracking-widest text-slate-400 block">Palavra Encontrada</span>
+                    <span id="modal-target-word" class="text-2xl sm:text-3xl font-extrabold font-mono-grid text-amber-400 tracking-wider">SEGREDO</span>
+                </div>
+                <div class="mt-3 pt-3 border-t border-slate-800/80 text-sm text-slate-300 italic text-center" id="modal-context-sentence">
+                    "Nossa antiga casa escondia um segredo terrível."
+                </div>
+            </div>
+
+            <!-- Feedback de Erro / Dica Pedagógica -->
+            <div id="modal-feedback" class="hidden mb-4 p-3 rounded-xl bg-red-950/70 border border-red-700/70 text-red-200 text-xs sm:text-sm leading-relaxed">
+            </div>
+
+            <p class="text-xs sm:text-sm font-semibold text-slate-300 mb-3 text-center">Qual é a <span class="text-amber-400 underline">classe gramatical</span> dessa palavra neste contexto?</p>
+
+            <!-- Botões das 10 Classes Gramaticais -->
+            <div id="grammar-buttons-grid" class="grid grid-cols-2 gap-2">
+                <!-- Gerado dinamicamente pelo JS -->
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL 2: Instruções Rápidas -->
+    <div id="help-modal" class="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-sm hidden items-center justify-center p-4">
+        <div class="bg-slate-900 border border-slate-700 rounded-2xl max-w-md w-full p-6 shadow-2xl">
+            <h3 class="text-lg font-extrabold text-slate-100 uppercase tracking-wide mb-3 flex items-center gap-2">
+                <span class="text-amber-400">🕵️</span> Manual do Investigador
+            </h3>
+            <ul class="space-y-2.5 text-sm text-slate-300 mb-5">
+                <li class="flex items-start gap-2">
+                    <span class="font-bold text-amber-400">1.</span>
+                    <span><strong>Localize na Grade:</strong> Clique (ou toque) na primeira letra de uma palavra escondida e arraste em linha reta até a última letra.</span>
+                </li>
+                <li class="flex items-start gap-2">
+                    <span class="font-bold text-amber-400">2.</span>
+                    <span><strong>Analise o Contexto:</strong> Cada palavra tem um número que corresponde à sua posição no conto <em>"A última batida"</em>.</span>
+                </li>
+                <li class="flex items-start gap-2">
+                    <span class="font-bold text-amber-400">3.</span>
+                    <span><strong>Classifique:</strong> Ao encontrar a palavra, escolha sua classe gramatical. Acertar de primeira garante <strong>+150 pontos</strong>! Se errar, você recebe uma dica pedagógica para tentar de novo.</span>
+                </li>
+            </ul>
+            <button id="close-help-btn" class="w-full py-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-extrabold uppercase tracking-wider text-sm transition cursor-pointer">
+                Entendi, iniciar investigação
+            </button>
+        </div>
+    </div>
+
+    <!-- MODAL 3: Tela Final de Vitória -->
+    <div id="victory-modal" class="fixed inset-0 z-50 bg-slate-950/90 backdrop-blur-md hidden items-center justify-center p-4">
+        <div class="bg-slate-900 border-2 border-emerald-500/70 rounded-2xl max-w-lg w-full p-6 shadow-2xl text-center">
+            <div class="w-16 h-16 rounded-2xl bg-emerald-950 border border-emerald-600/60 flex items-center justify-center mx-auto mb-3 shadow-lg">
+                <svg class="w-9 h-9 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                </svg>
+            </div>
+            <span class="text-xs font-bold uppercase tracking-widest text-emerald-400">Caso Encerrado com Sucesso!</span>
+            <h2 class="text-2xl sm:text-3xl font-extrabold text-slate-100 mt-1 mb-2">Dossiê Morfológico Concluído</h2>
+            <p class="text-sm text-slate-400 mb-5">Todas as evidências do conto <em>"A última batida"</em> foram localizadas e classificadas.</p>
+
+            <!-- Resumo de Desempenho -->
+            <div class="grid grid-cols-3 gap-2.5 bg-slate-950/80 border border-slate-800 rounded-xl p-4 mb-5">
+                <div>
+                    <span class="block text-[11px] uppercase text-slate-400 font-semibold">Pontuação</span>
+                    <span id="final-score" class="text-xl sm:text-2xl font-extrabold font-mono-grid text-amber-400">0</span>
+                </div>
+                <div>
+                    <span class="block text-[11px] uppercase text-slate-400 font-semibold">1ª Tentativa</span>
+                    <span id="final-accuracy" class="text-xl sm:text-2xl font-extrabold font-mono-grid text-emerald-400">16/16</span>
+                </div>
+                <div>
+                    <span class="block text-[11px] uppercase text-slate-400 font-semibold">Tempo</span>
+                    <span id="final-time" class="text-xl sm:text-2xl font-extrabold font-mono-grid text-sky-400">00:00</span>
+                </div>
+            </div>
+
+            <div id="final-rank-badge" class="mb-5 px-4 py-2.5 rounded-xl bg-amber-500/15 border border-amber-500/40 text-amber-300 text-sm font-bold">
+                Patente: Perito Morfológico Sênior
+            </div>
+
+            <button id="play-again-btn" class="w-full py-3.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold uppercase tracking-wider text-sm shadow-lg transition cursor-pointer">
+                Jogar Novamente (Embaralhar Grade)
+            </button>
+        </div>
+    </div>
+
+    <script>
+        /**
+         * CSI MORFOLÓGICO - CAÇA-PALAVRAS INTERATIVO
+         * Lógica completa de geração de grade, seleção por toque/mouse e avaliação morfológica contextual.
+         */
+
+        // 1. Definição das 10 Classes Gramaticais e suas identidades visuais
+        const GRAMMAR_CLASSES = {
+            "Substantivo": {
+                colorBg: "bg-blue-600",
+                colorText: "text-white",
+                badgeClass: "bg-blue-950/90 text-blue-300 border-blue-700/70",
+                dotClass: "bg-blue-500",
+                hint: "Substantivos dão nome a seres, lugares, objetos, sentimentos ou noções."
+            },
+            "Adjetivo": {
+                colorBg: "bg-purple-600",
+                colorText: "text-white",
+                badgeClass: "bg-purple-950/90 text-purple-300 border-purple-700/70",
+                dotClass: "bg-purple-500",
+                hint: "Adjetivos caracterizam, qualificam ou atribuem estado a um substantivo."
+            },
+            "Artigo": {
+                colorBg: "bg-cyan-600",
+                colorText: "text-white",
+                badgeClass: "bg-cyan-950/90 text-cyan-300 border-cyan-700/70",
+                dotClass: "bg-cyan-500",
+                hint: "Artigos antecedem o substantivo para defini-lo (o, a) ou indefini-lo (um, uma)."
+            },
+            "Numeral": {
+                colorBg: "bg-teal-600",
+                colorText: "text-white",
+                badgeClass: "bg-teal-950/90 text-teal-300 border-teal-700/70",
+                dotClass: "bg-teal-500",
+                hint: "Numerais indicam quantidade exata, ordem, múltiplo ou fração."
+            },
+            "Pronome": {
+                colorBg: "bg-indigo-600",
+                colorText: "text-white",
+                badgeClass: "bg-indigo-950/90 text-indigo-300 border-indigo-700/70",
+                dotClass: "bg-indigo-500",
+                hint: "Pronomes substituem ou acompanham um substantivo, situando-o no discurso."
+            },
+            "Verbo": {
+                colorBg: "bg-emerald-600",
+                colorText: "text-white",
+                badgeClass: "bg-emerald-950/90 text-emerald-300 border-emerald-700/70",
+                dotClass: "bg-emerald-500",
+                hint: "Verbos expressam ação, estado, mudança de estado ou fenômeno da natureza."
+            },
+            "Advérbio": {
+                colorBg: "bg-amber-600",
+                colorText: "text-slate-950",
+                badgeClass: "bg-amber-950/90 text-amber-300 border-amber-700/70",
+                dotClass: "bg-amber-500",
+                hint: "Advérbios são invariáveis e modificam um verbo, adjetivo ou outro advérbio (tempo, modo, lugar...)."
+            },
+            "Preposição": {
+                colorBg: "bg-rose-600",
+                colorText: "text-white",
+                badgeClass: "bg-rose-950/90 text-rose-300 border-rose-700/70",
+                dotClass: "bg-rose-500",
+                hint: "Preposições ligam duas palavras, estabelecendo relação de sentido entre elas (ex: por + o = pelo)."
+            },
+            "Conjunção": {
+                colorBg: "bg-orange-600",
+                colorText: "text-white",
+                badgeClass: "bg-orange-950/90 text-orange-300 border-orange-700/70",
+                dotClass: "bg-orange-500",
+                hint: "Conjunções conectam orações ou termos de mesma função (ex: mas, porém, e, porque)."
+            },
+            "Interjeição": {
+                colorBg: "bg-pink-600",
+                colorText: "text-white",
+                badgeClass: "bg-pink-950/90 text-pink-300 border-pink-700/70",
+                dotClass: "bg-pink-500",
+                hint: "Interjeições exprimem emoções súbitas, susto, pedido de ajuda ou chamamento."
+            }
+        };
+
+        // 2. Banco de Palavras-Alvo do Conto "A última batida" (16 palavras contemplando todas as 10 classes)
+        const TARGET_WORDS = [
+            { id: 1,  gridWord: "NOSSA",          displayWord: "Nossa",          num: 1,  grammarClass: "Pronome",     sentence: "<strong>Nossa</strong> (1) antiga casa escondia um segredo terrível.", tip: "Acompanha o substantivo 'casa' indicando posse (pronome possessivo)." },
+            { id: 2,  gridWord: "ANTIGA",         displayWord: "antiga",         num: 2,  grammarClass: "Adjetivo",    sentence: "Nossa <strong>antiga</strong> (2) casa escondia um segredo terrível.", tip: "Atribui uma característica ao substantivo 'casa'." },
+            { id: 3,  gridWord: "CASA",           displayWord: "casa",           num: 3,  grammarClass: "Substantivo", sentence: "Nossa antiga <strong>casa</strong> (3) escondia um segredo terrível.", tip: "Nomeia a construção onde se passa a história." },
+            { id: 4,  gridWord: "ESCONDIA",       displayWord: "escondia",       num: 4,  grammarClass: "Verbo",       sentence: "Nossa antiga casa <strong>escondia</strong> (4) um segredo terrível.", tip: "Indica uma ação/estado no pretérito imperfeito." },
+            { id: 5,  gridWord: "UM",             displayWord: "um",             num: 5,  grammarClass: "Artigo",      sentence: "Nossa antiga casa escondia <strong>um</strong> (5) segredo terrível.", tip: "Antecede o substantivo 'segredo' de forma indefinida." },
+            { id: 6,  gridWord: "TERRIVEL",       displayWord: "terrível",       num: 7,  grammarClass: "Adjetivo",    sentence: "Nossa antiga casa escondia um segredo <strong>terrível</strong> (7).", tip: "Caracteriza o substantivo 'segredo'." },
+            { id: 7,  gridWord: "ONTEM",          displayWord: "Ontem",          num: 8,  grammarClass: "Advérbio",    sentence: "<strong>Ontem</strong> (8), duas sombras caminharam silenciosamente pelo corredor escuro.", tip: "Palavra invariável que indica circunstância de tempo." },
+            { id: 8,  gridWord: "DUAS",           displayWord: "duas",           num: 9,  grammarClass: "Numeral",     sentence: "Ontem, <strong>duas</strong> (9) sombras caminharam silenciosamente pelo corredor escuro.", tip: "Determina a quantidade exata de 'sombras' (numeral cardinal)." },
+            { id: 9,  gridWord: "SOMBRAS",        displayWord: "sombras",        num: 10, grammarClass: "Substantivo", sentence: "Ontem, duas <strong>sombras</strong> (10) caminharam silenciosamente pelo corredor escuro.", tip: "Nomeia as figuras misteriosas vistas no corredor." },
+            { id: 10, gridWord: "PELO",           displayWord: "pelo",           num: 13, grammarClass: "Preposição",  sentence: "Ontem, duas sombras caminharam silenciosamente <strong>pelo</strong> (13) corredor escuro.", tip: "Contração da preposição 'por' + artigo 'o', ligando o verbo ao lugar." },
+            { id: 11, gridWord: "CORREDOR",       displayWord: "corredor",       num: 14, grammarClass: "Substantivo", sentence: "Ontem, duas sombras caminharam silenciosamente pelo <strong>corredor</strong> (14) escuro.", tip: "Nomeia o espaço físico da casa." },
+            { id: 12, gridWord: "NINGUEM",        displayWord: "Ninguém",        num: 16, grammarClass: "Pronome",     sentence: "<strong>Ninguém</strong> (16) abriu a porta, mas ela rangeu devagar.", tip: "Substitui o sujeito de forma vaga e imprecisa (pronome indefinido)." },
+            { id: 13, gridWord: "MAS",            displayWord: "mas",            num: 20, grammarClass: "Conjunção",   sentence: "Ninguém abriu a porta, <strong>mas</strong> (20) ela rangeu devagar.", tip: "Conecta duas orações estabelecendo ideia de oposição (adversativa)." },
+            { id: 14, gridWord: "DEVAGAR",        displayWord: "devagar",        num: 23, grammarClass: "Advérbio",    sentence: "Ninguém abriu a porta, mas ela rangeu <strong>devagar</strong> (23).", tip: "Pegadinha clássica! Modifica o verbo 'rangeu' indicando modo (e é invariável)." },
+            { id: 15, gridWord: "SOCORRO",        displayWord: "Socorro!",       num: 24, grammarClass: "Interjeição", sentence: "— <strong>Socorro!</strong> (24) — gritou o zelador antes de desaparecer.", tip: "Expressa uma súplica ou pedido urgente de auxílio." },
+            { id: 16, gridWord: "DESAPARECER",    displayWord: "desaparecer",    num: 30, grammarClass: "Verbo",       sentence: "— Socorro! — gritou o zelador antes de <strong>desaparecer</strong> (30).", tip: "Indica a ação final do zelador (verbo no infinitivo)." }
+        ];
+
+        // 3. Estrutura do Conto para renderização com destaques sincronizados
+        const STORY_LINES = [
+            [
+                { text: "1. ", boldPrefix: true },
+                { text: "Nossa", num: 1, wordId: 1 }, { text: " " },
+                { text: "antiga", num: 2, wordId: 2 }, { text: " " },
+                { text: "casa", num: 3, wordId: 3 }, { text: " " },
+                { text: "escondia", num: 4, wordId: 4 }, { text: " " },
+                { text: "um", num: 5, wordId: 5 }, { text: " segredo(6) " },
+                { text: "terrível", num: 7, wordId: 6 }, { text: "." }
+            ],
+            [
+                { text: "2. ", boldPrefix: true },
+                { text: "Ontem", num: 8, wordId: 7 }, { text: ", " },
+                { text: "duas", num: 9, wordId: 8 }, { text: " " },
+                { text: "sombras", num: 10, wordId: 9 }, { text: " caminharam(11) silenciosamente(12) " },
+                { text: "pelo", num: 13, wordId: 10 }, { text: " " },
+                { text: "corredor", num: 14, wordId: 11 }, { text: " escuro(15)." }
+            ],
+            [
+                { text: "3. ", boldPrefix: true },
+                { text: "Ninguém", num: 16, wordId: 12 }, { text: " abriu(17) a(18) porta(19), " },
+                { text: "mas", num: 20, wordId: 13 }, { text: " ela(21) rangeu(22) " },
+                { text: "devagar", num: 23, wordId: 14 }, { text: "." }
+            ],
+            [
+                { text: "4. ", boldPrefix: true },
+                { text: "— " },
+                { text: "Socorro!", num: 24, wordId: 15 }, { text: " — gritou(25) o(26) zelador(27) antes(28) de(29) " },
+                { text: "desaparecer", num: 30, wordId: 16 }, { text: "." }
+            ]
+        ];
+
+        // 4. Estado do Jogo
+        const GRID_SIZE = 14;
+        let gridMatrix = [];
+        let placedWords = [];
+        let foundWordIds = new Set();
+        let wordCellColors = {}; // Mapeia "r-c" -> classe de cor
+        let score = 0;
+        let firstTryCount = 0;
+        let soundEnabled = true;
+
+        // Estado de seleção na grade
+        let isDragging = false;
+        let startCell = null;
+        let currentSelection = [];
+
+        // Estado do Modal de Classificação
+        let activeChallengeWord = null;
+        let currentAttempts = 0;
+
+        // Estado do Cronômetro
+        let timerSeconds = 0;
+        let timerRunning = true;
+        let timerInterval = null;
+
+        // 5. Sintetizador de Som (Web Audio API - Zero dependências externas)
+        let audioCtx = null;
+        function playTone(type) {
+            if (!soundEnabled) return;
+            try {
+                if (!audioCtx) {
+                    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                }
+                if (audioCtx.state === 'suspended') {
+                    audioCtx.resume();
+                }
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+
+                const now = audioCtx.currentTime;
+                if (type === 'select') {
+                    osc.type = 'sine';
+                    osc.frequency.setValueAtTime(520, now);
+                    gain.gain.setValueAtTime(0.05, now);
+                    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.06);
+                    osc.start(now);
+                    osc.stop(now + 0.06);
+                } else if (type === 'found') {
+                    osc.type = 'triangle';
+                    osc.frequency.setValueAtTime(440, now);
+                    osc.frequency.setValueAtTime(660, now + 0.09);
+                    gain.gain.setValueAtTime(0.12, now);
+                    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.25);
+                    osc.start(now);
+                    osc.stop(now + 0.25);
+                } else if (type === 'success') {
+                    osc.type = 'sine';
+                    osc.frequency.setValueAtTime(523.25, now);
+                    osc.frequency.setValueAtTime(659.25, now + 0.1);
+                    osc.frequency.setValueAtTime(783.99, now + 0.2);
+                    gain.gain.setValueAtTime(0.14, now);
+                    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.4);
+                    osc.start(now);
+                    osc.stop(now + 0.4);
+                } else if (type === 'error') {
+                    osc.type = 'sawtooth';
+                    osc.frequency.setValueAtTime(190, now);
+                    osc.frequency.linearRampToValueAtTime(140, now + 0.2);
+                    gain.gain.setValueAtTime(0.09, now);
+                    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.22);
+                    osc.start(now);
+                    osc.stop(now + 0.22);
+                }
+            } catch (e) {
+                // Ignora bloqueios de áudio se houver
+            }
+        }
+
+        // 6. Gerador do Caça-Palavras (14x14)
+        const DIRECTIONS = [
+            { dr: 0, dc: 1 },   // Horizontal (esquerda -> direita)
+            { dr: 1, dc: 0 },   // Vertical (cima -> baixo)
+            { dr: 1, dc: 1 },   // Diagonal principal
+            { dr: -1, dc: 1 },  // Diagonal ascendente
+            { dr: 0, dc: -1 },  // Horizontal invertida
+            { dr: -1, dc: 0 }   // Vertical invertida
+        ];
+
+        function generateWordSearch() {
+            // Tenta até encontrar um encaixe limpo para todas as 16 palavras
+            for (let attempt = 0; attempt < 50; attempt++) {
+                const board = Array.from({ length: GRID_SIZE }, () => Array(GRID_SIZE).fill(''));
+                const placements = [];
+                // Ordena da maior palavra para a menor para facilitar o encaixe
+                const sortedWords = [...TARGET_WORDS].sort((a, b) => b.gridWord.length - a.gridWord.length);
+                let allPlaced = true;
+
+                for (const wordObj of sortedWords) {
+                    const word = wordObj.gridWord;
+                    let placed = false;
+
+                    // Embaralha posições e direções
+                    const candidates = [];
+                    for (let r = 0; r < GRID_SIZE; r++) {
+                        for (let c = 0; c < GRID_SIZE; c++) {
+                            for (const dir of DIRECTIONS) {
+                                candidates.push({ r, c, dir });
+                            }
+                        }
+                    }
+                    shuffleArray(candidates);
+
+                    for (const { r, c, dir } of candidates) {
+                        if (canPlaceWord(board, word, r, c, dir.dr, dir.dc)) {
+                            const coords = [];
+                            for (let i = 0; i < word.length; i++) {
+                                const nr = r + i * dir.dr;
+                                const nc = c + i * dir.dc;
+                                board[nr][nc] = word[i];
+                                coords.push({ r: nr, c: nc });
+                            }
+                            placements.push({ wordId: wordObj.id, coords });
+                            placed = true;
+                            break;
+                        }
+                    }
+
+                    if (!placed) {
+                        allPlaced = false;
+                        break;
+                    }
+                }
+
+                if (allPlaced) {
+                    // Preenche espaços vazios com letras aleatórias ponderadas do português
+                    const fillerLetters = "AAAEEEIIOOUURSSNNTTLLMMCCDDPPBGVFHQ";
+                    for (let r = 0; r < GRID_SIZE; r++) {
+                        for (let c = 0; c < GRID_SIZE; c++) {
+                            if (board[r][c] === '') {
+                                board[r][c] = fillerLetters[Math.floor(Math.random() * fillerLetters.length)];
+                            }
+                        }
+                    }
+                    gridMatrix = board;
+                    placedWords = placements;
+                    return;
+                }
+            }
+        }
+
+        function canPlaceWord(board, word, startR, startC, dr, dc) {
+            const endR = startR + (word.length - 1) * dr;
+            const endC = startC + (word.length - 1) * dc;
+            if (endR < 0 || endR >= GRID_SIZE || endC < 0 || endC >= GRID_SIZE) return false;
+
+            for (let i = 0; i < word.length; i++) {
+                const r = startR + i * dr;
+                const c = startC + i * dc;
+                const existing = board[r][c];
+                if (existing !== '' && existing !== word[i]) {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        function shuffleArray(arr) {
+            for (let i = arr.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [arr[i], arr[j]] = [arr[j], arr[i]];
+            }
+        }
+
+        // 7. Renderização da Interface
+        function renderStory() {
+            const container = document.getElementById('story-container');
+            container.innerHTML = '';
+
+            STORY_LINES.forEach(line => {
+                const p = document.createElement('p');
+                line.forEach(token => {
+                    if (token.boldPrefix) {
+                        const strong = document.createElement('strong');
+                        strong.className = 'text-red-400 font-bold mr-1';
+                        strong.textContent = token.text;
+                        p.appendChild(strong);
+                    } else if (token.wordId) {
+                        const wordObj = TARGET_WORDS.find(w => w.id === token.wordId);
+                        const isFound = foundWordIds.has(token.wordId);
+                        const span = document.createElement('span');
+                        span.className = 'story-highlight font-semibold';
+
+                        if (isFound) {
+                            const gInfo = GRAMMAR_CLASSES[wordObj.grammarClass];
+                            span.className += ` found ${gInfo.badgeClass} border`;
+                        } else {
+                            span.className += ' bg-amber-500/15 text-amber-200 border border-amber-500/30';
+                        }
+
+                        span.innerHTML = `${token.text}<sup class="text-[10px] font-mono-grid ml-0.5 opacity-80">(${token.num})</sup>`;
+                        p.appendChild(span);
+                    } else {
+                        p.appendChild(document.createTextNode(token.text));
+                    }
+                });
+                container.appendChild(p);
+            });
+        }
+
+        function renderWordList() {
+            const listEl = document.getElementById('word-list');
+            listEl.innerHTML = '';
+
+            TARGET_WORDS.forEach(w => {
+                const isFound = foundWordIds.has(w.id);
+                const item = document.createElement('div');
+
+                if (isFound) {
+                    const gInfo = GRAMMAR_CLASSES[w.grammarClass];
+                    item.className = `flex items-center justify-between px-2.5 py-1.5 rounded-lg border text-xs transition ${gInfo.badgeClass}`;
+                    item.innerHTML = `
+                        <div class="flex items-center gap-1.5 truncate">
+                            <span class="font-mono-grid opacity-75">#${String(w.num).padStart(2, '0')}</span>
+                            <span class="font-bold line-through truncate">${w.gridWord}</span>
+                        </div>
+                        <span class="text-[10px] font-extrabold uppercase px-1.5 py-0.5 rounded bg-black/30 shrink-0">${w.grammarClass}</span>
+                    `;
+                } else {
+                    item.className = 'flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-slate-900/90 border border-slate-800 text-xs text-slate-300';
+                    item.innerHTML = `
+                        <div class="flex items-center gap-1.5">
+                            <span class="font-mono-grid text-amber-400 font-bold">#${String(w.num).padStart(2, '0')}</span>
+                            <span class="font-mono-grid font-semibold tracking-wide">${w.gridWord}</span>
+                        </div>
+                        <span class="text-[10px] text-slate-500 uppercase">Pendente</span>
+                    `;
+                }
+                listEl.appendChild(item);
+            });
+        }
+
+        function renderClassLegend() {
+            const legendEl = document.getElementById('class-legend');
+            legendEl.innerHTML = '';
+
+            Object.entries(GRAMMAR_CLASSES).forEach(([className, info]) => {
+                const badge = document.createElement('span');
+                badge.className = 'inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-slate-900 border border-slate-800 text-[11px] text-slate-300';
+                badge.innerHTML = `<span class="w-2 h-2 rounded-full ${info.dotClass}"></span>${className}`;
+                legendEl.appendChild(badge);
+            });
+        }
+
+        function renderGrid() {
+            const gridEl = document.getElementById('word-grid');
+            gridEl.innerHTML = '';
+
+            for (let r = 0; r < GRID_SIZE; r++) {
+                for (let c = 0; c < GRID_SIZE; c++) {
+                    const cell = document.createElement('div');
+                    const key = `${r}-${c}`;
+                    const foundStyle = wordCellColors[key];
+
+                    cell.dataset.r = r;
+                    cell.dataset.c = c;
+                    cell.textContent = gridMatrix[r][c];
+                    cell.className = 'grid-cell font-mono-grid text-xs sm:text-base md:text-lg select-none ';
+
+                    if (foundStyle) {
+                        cell.className += `${foundStyle} shadow-sm`;
+                    } else {
+                        cell.className += 'bg-slate-900/95 text-slate-200 border border-slate-800/80';
+                    }
+
+                    gridEl.appendChild(cell);
+                }
+            }
+        }
+
+        function renderGrammarModalButtons() {
+            const container = document.getElementById('grammar-buttons-grid');
+            container.innerHTML = '';
+
+            Object.entries(GRAMMAR_CLASSES).forEach(([className, info]) => {
+                const btn = document.createElement('button');
+                btn.type = 'button';
+                btn.className = 'flex items-center gap-2.5 p-2.5 sm:p-3 rounded-xl bg-slate-800/90 hover:bg-slate-700 border border-slate-700 hover:border-amber-400/70 text-left transition cursor-pointer active:scale-95';
+                btn.innerHTML = `
+                    <span class="w-3 h-3 rounded-full shrink-0 ${info.dotClass}"></span>
+                    <span class="text-xs sm:text-sm font-bold text-slate-100">${className}</span>
+                `;
+                btn.addEventListener('click', () => handleClassChoice(className, btn));
+                container.appendChild(btn);
+            });
+        }
+
+        // 8. Interação de Arraste (Mouse & Touch Unificados)
+        function setupGridEvents() {
+            const gridEl = document.getElementById('word-grid');
+
+            function getCellFromPoint(clientX, clientY) {
+                const target = document.elementFromPoint(clientX, clientY);
+                if (target && target.classList.contains('grid-cell')) {
+                    return {
+                        r: parseInt(target.dataset.r, 10),
+                        c: parseInt(target.dataset.c, 10)
+                    };
+                }
+                return null;
+            }
+
+            function handleStart(clientX, clientY) {
+                if (!document.getElementById('classification-modal').classList.contains('hidden')) return;
+                const cell = getCellFromPoint(clientX, clientY);
+                if (!cell) return;
+
+                isDragging = true;
+                startCell = cell;
+                updateSelection(cell);
+                playTone('select');
+            }
+
+            function handleMove(clientX, clientY) {
+                if (!isDragging || !startCell) return;
+                const cell = getCellFromPoint(clientX, clientY);
+                if (cell) {
+                    updateSelection(cell);
+                }
+            }
+
+            function handleEnd() {
+                if (!isDragging) return;
+                isDragging = false;
+                validateCurrentSelection();
+                clearSelectionVisuals();
+                startCell = null;
+                currentSelection = [];
+                document.getElementById('selection-preview').textContent = '';
+            }
+
+            // Mouse events
+            gridEl.addEventListener('mousedown', (e) => {
+                if (e.button !== 0) return;
+                handleStart(e.clientX, e.clientY);
+            });
+            window.addEventListener('mousemove', (e) => handleMove(e.clientX, e.clientY));
+            window.addEventListener('mouseup', handleEnd);
+
+            // Touch events (suporte completo para celular/tablet)
+            gridEl.addEventListener('touchstart', (e) => {
+                if (e.touches.length > 0) {
+                    e.preventDefault();
+                    handleStart(e.touches[0].clientX, e.touches[0].clientY);
+                }
+            }, { passive: false });
+
+            gridEl.addEventListener('touchmove', (e) => {
+                if (e.touches.length > 0) {
+                    e.preventDefault();
+                    handleMove(e.touches[0].clientX, e.touches[0].clientY);
+                }
+            }, { passive: false });
+
+            window.addEventListener('touchend', handleEnd);
+        }
+
+        function updateSelection(endCell) {
+            const dr = endCell.r - startCell.r;
+            const dc = endCell.c - startCell.c;
+
+            // Garante linha reta (horizontal, vertical ou diagonal exata de 45 graus)
+            const absR = Math.abs(dr);
+            const absC = Math.abs(dc);
+
+            if (dr === 0 && dc === 0) {
+                currentSelection = [startCell];
+            } else if (dr === 0 || dc === 0 || absR === absC) {
+                const steps = Math.max(absR, absC);
+                const stepR = dr === 0 ? 0 : dr / absR;
+                const stepC = dc === 0 ? 0 : dc / absC;
+
+                const cells = [];
+                for (let i = 0; i <= steps; i++) {
+                    cells.push({
+                        r: startCell.r + i * stepR,
+                        c: startCell.c + i * stepC
+                    });
+                }
+
+                // Toca som sutil apenas se o tamanho da seleção mudou
+                if (cells.length !== currentSelection.length) {
+                    playTone('select');
+                }
+                currentSelection = cells;
+            }
+
+            // Atualiza visual das células selecionadas
+            clearSelectionVisuals();
+            let previewStr = '';
+            currentSelection.forEach(({ r, c }) => {
+                const cellEl = document.querySelector(`.grid-cell[data-r="${r}"][data-c="${c}"]`);
+                if (cellEl) cellEl.classList.add('selecting');
+                previewStr += gridMatrix[r][c];
+            });
+            document.getElementById('selection-preview').textContent = previewStr;
+        }
+
+        function clearSelectionVisuals() {
+            document.querySelectorAll('.grid-cell.selecting').forEach(el => {
+                el.classList.remove('selecting');
+            });
+        }
+
+        function validateCurrentSelection() {
+            if (currentSelection.length < 2) return;
+
+            const selectedStr = currentSelection.map(({ r, c }) => gridMatrix[r][c]).join('');
+            const reversedStr = selectedStr.split('').reverse().join('');
+
+            // Procura se corresponde a alguma palavra ainda não encontrada
+            const matchedWord = TARGET_WORDS.find(w =>
+                !foundWordIds.has(w.id) && (w.gridWord === selectedStr || w.gridWord === reversedStr)
+            );
+
+            if (matchedWord) {
+                playTone('found');
+                openClassificationModal(matchedWord, [...currentSelection]);
+            }
+        }
+
+        // 9. Mecânica Dupla: Modal de Classificação Gramatical
+        let pendingCoords = [];
+
+        function openClassificationModal(wordObj, coords) {
+            activeChallengeWord = wordObj;
+            pendingCoords = coords;
+            currentAttempts = 0;
+
+            document.getElementById('modal-word-num').textContent = `PISTA #${String(wordObj.num).padStart(2, '0')}`;
+            document.getElementById('modal-target-word').textContent = wordObj.displayWord.toUpperCase();
+            document.getElementById('modal-context-sentence').innerHTML = `"${wordObj.sentence}"`;
+            document.getElementById('modal-attempt-badge').textContent = '1ª Tentativa (+150 pts)';
+            document.getElementById('modal-attempt-badge').className = 'text-xs font-semibold px-2.5 py-1 rounded-full bg-emerald-950 text-emerald-300 border border-emerald-700/50';
+
+            const feedbackEl = document.getElementById('modal-feedback');
+            feedbackEl.classList.add('hidden');
+            feedbackEl.innerHTML = '';
+
+            // Reseta aparência dos botões
+            renderGrammarModalButtons();
+
+            const modal = document.getElementById('classification-modal');
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+        }
+
+        function handleClassChoice(chosenClass, btnEl) {
+            if (!activeChallengeWord) return;
+            currentAttempts++;
+
+            if (chosenClass === activeChallengeWord.grammarClass) {
+                // Acertou!
+                playTone('success');
+                const pointsEarned = currentAttempts === 1 ? 150 : 75;
+                if (currentAttempts === 1) firstTryCount++;
+                score += pointsEarned;
+
+                foundWordIds.add(activeChallengeWord.id);
+                const gInfo = GRAMMAR_CLASSES[chosenClass];
+                const cellStyle = `${gInfo.colorBg} ${gInfo.colorText}`;
+
+                pendingCoords.forEach(({ r, c }) => {
+                    wordCellColors[`${r}-${c}`] = cellStyle;
+                });
+
+                // Fecha modal e atualiza interface
+                const modal = document.getElementById('classification-modal');
+                modal.classList.add('hidden');
+                modal.classList.remove('flex');
+                activeChallengeWord = null;
+
+                updateHUD();
+                renderGrid();
+                renderStory();
+                renderWordList();
+
+                // Verifica condição de vitória
+                if (foundWordIds.size === TARGET_WORDS.length) {
+                    setTimeout(showVictoryModal, 450);
+                }
+            } else {
+                // Errou: exibe dica pedagógica rápida e desabilita a opção errada
+                playTone('error');
+                btnEl.disabled = true;
+                btnEl.className = 'flex items-center gap-2.5 p-2.5 sm:p-3 rounded-xl bg-red-950/50 border border-red-800/60 text-left opacity-50 cursor-not-allowed';
+
+                document.getElementById('modal-attempt-badge').textContent = 'Nova Tentativa (+75 pts)';
+                document.getElementById('modal-attempt-badge').className = 'text-xs font-semibold px-2.5 py-1 rounded-full bg-amber-950 text-amber-300 border border-amber-700/50';
+
+                const wrongHint = GRAMMAR_CLASSES[chosenClass].hint;
+                const feedbackEl = document.getElementById('modal-feedback');
+                feedbackEl.innerHTML = `
+                    <p class="font-bold text-red-300 mb-1">Não é ${chosenClass}!</p>
+                    <p class="text-slate-300 mb-1.5">• <em>Lembrete:</em> ${wrongHint}</p>
+                    <p class="text-amber-300 font-medium">• <em>Dica sobre "${activeChallengeWord.displayWord}":</em> ${activeChallengeWord.tip}</p>
+                `;
+                feedbackEl.classList.remove('hidden');
+            }
+        }
+
+        // 10. Atualização de Placar, Barra de Progresso e Cronômetro
+        function updateHUD() {
+            document.getElementById('score-display').textContent = score;
+            document.getElementById('progress-text').textContent = `${foundWordIds.size}/${TARGET_WORDS.length}`;
+            const pct = Math.round((foundWordIds.size / TARGET_WORDS.length) * 100);
+            document.getElementById('progress-bar').style.width = `${pct}%`;
+        }
+
+        function formatTime(sec) {
+            const m = String(Math.floor(sec / 60)).padStart(2, '0');
+            const s = String(sec % 60).padStart(2, '0');
+            return `${m}:${s}`;
+        }
+
+        function startTimer() {
+            clearInterval(timerInterval);
+            timerInterval = setInterval(() => {
+                if (timerRunning && foundWordIds.size < TARGET_WORDS.length) {
+                    timerSeconds++;
+                    document.getElementById('timer-display').textContent = formatTime(timerSeconds);
+                }
+            }, 1000);
+        }
+
+        function showVictoryModal() {
+            playTone('success');
+            document.getElementById('final-score').textContent = score;
+            document.getElementById('final-accuracy').textContent = `${firstTryCount}/${TARGET_WORDS.length}`;
+            document.getElementById('final-time').textContent = formatTime(timerSeconds);
+
+            let rankText = "Patente: Investigador Júnior em Formação";
+            if (firstTryCount >= 14) {
+                rankText = "Patente: Delegado-Chefe de Morfologia 🏆";
+            } else if (firstTryCount >= 10) {
+                rankText = "Patente: Perito Criminal Gramatical 🔎";
+            }
+            document.getElementById('final-rank-badge').textContent = rankText;
+
+            const modal = document.getElementById('victory-modal');
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+        }
+
+        // 11. Inicialização e Reinício
+        function initGame() {
+            foundWordIds.clear();
+            wordCellColors = {};
+            score = 0;
+            firstTryCount = 0;
+            timerSeconds = 0;
+            document.getElementById('timer-display').textContent = '00:00';
+
+            generateWordSearch();
+            updateHUD();
+            renderStory();
+            renderWordList();
+            renderClassLegend();
+            renderGrid();
+            startTimer();
+        }
+
+        // Eventos dos botões do cabeçalho e modais
+        document.getElementById('reset-btn').addEventListener('click', initGame);
+        document.getElementById('play-again-btn').addEventListener('click', () => {
+            document.getElementById('victory-modal').classList.add('hidden');
+            document.getElementById('victory-modal').classList.remove('flex');
+            initGame();
+        });
+
+        document.getElementById('timer-toggle-btn').addEventListener('click', () => {
+            timerRunning = !timerRunning;
+            const icon = document.getElementById('timer-icon');
+            const disp = document.getElementById('timer-display');
+            if (timerRunning) {
+                icon.classList.remove('text-slate-500');
+                icon.classList.add('text-sky-400');
+                disp.classList.remove('opacity-50');
+            } else {
+                icon.classList.remove('text-sky-400');
+                icon.classList.add('text-slate-500');
+                disp.classList.add('opacity-50');
+            }
+        });
+
+        document.getElementById('sound-btn').addEventListener('click', () => {
+            soundEnabled = !soundEnabled;
+            document.getElementById('sound-on-icon').classList.toggle('hidden', !soundEnabled);
+            document.getElementById('sound-off-icon').classList.toggle('hidden', soundEnabled);
+        });
+
+        document.getElementById('help-btn').addEventListener('click', () => {
+            const modal = document.getElementById('help-modal');
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+        });
+
+        document.getElementById('close-help-btn').addEventListener('click', () => {
+            const modal = document.getElementById('help-modal');
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+        });
+
+        // Boot
+        window.addEventListener('DOMContentLoaded', () => {
+            setupGridEvents();
+            initGame();
+        });
+    </script>
+</body>
+</html>
