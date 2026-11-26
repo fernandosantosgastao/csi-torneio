@@ -417,6 +417,15 @@
             </div>
           </div>
 
+          <div id="roomHistoryBox" class="saved-rooms-box" style="margin-top:12px;">
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+              <span style="font-size:0.84rem; font-weight:800; color:var(--gold);">🕘 Histórico de Salas Criadas</span>
+            </div>
+            <div id="roomHistoryList" class="saved-rooms-list" style="margin-top:8px;">
+              <div style="font-size:0.8rem; color:var(--text-muted);">Nenhuma sala registrada no histórico ainda.</div>
+            </div>
+          </div>
+
           <div id="upgradeBox" class="hidden" style="margin-top:14px; padding:14px; background:var(--bg-panel); border:1px solid var(--gold); border-radius:12px; text-align:center;">
             <strong style="color:var(--gold);">🔒 Período de Teste Encerrado</strong>
             <p style="font-size:0.84rem; margin:6px 0 10px 0;">Ative sua assinatura mensal para continuar criando salas ilimitadas para suas turmas.</p>
@@ -469,6 +478,7 @@
       <div style="display:flex; gap:10px; flex-wrap:wrap;">
         <button type="button" class="btn-success" id="btnStartTournament" onclick="startTournamentMatch()">🚀 Iniciar Partida Agora</button>
         <button type="button" class="btn-gold btn-sm hidden" id="btnForceNextStage" onclick="advanceTournamentStage()">⏭️ Encerrar Fase &amp; Classificar</button>
+        <button type="button" class="btn-ghost btn-sm" style="border-color:var(--danger); color:#fda4af;" onclick="closeRoomByPin()">🔒 Encerrar Sala</button>
         <button type="button" class="btn-success btn-sm" onclick="exportCSV()">📥 Exportar (CSV)</button>
         <button type="button" class="btn-primary btn-sm" onclick="restartFullTournament()">🔄 Novo Torneio</button>
       </div>
@@ -755,6 +765,7 @@
 
   function exitFocusMode() {
     document.body.classList.remove("focus-wordsearch-mode");
+    document.body.classList.remove("pseudo-fullscreen");
     const fab = document.getElementById("btnExitFocusFab");
     if (fab) fab.classList.add("hidden");
 
