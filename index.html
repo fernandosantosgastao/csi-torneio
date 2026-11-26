@@ -2,8 +2,11 @@
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <meta name="theme-color" content="#06132b">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <title>CSI Torneio Morfológico &amp; Matemático - Plataforma EdTech</title>
   <link rel="manifest" href="manifest.json">
   <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
@@ -159,6 +162,72 @@
       margin-bottom: 12px;
       gap: 10px;
     }
+
+    /* MODO FOCO: SÓ GRADE DO CAÇA-PALAVRAS + PALAVRAS A ENCONTRAR */
+    .exit-focus-fab {
+      position: fixed;
+      top: 12px;
+      right: 12px;
+      z-index: 9999;
+      padding: 8px 14px;
+      border-radius: 999px;
+      background: rgba(15, 23, 42, 0.92);
+      border: 1.5px solid #38bdf8;
+      color: #f8fafc;
+      font-weight: 800;
+      font-size: 0.82rem;
+      cursor: pointer;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+    }
+
+    body.focus-wordsearch-mode header,
+    body.focus-wordsearch-mode footer.site-footer,
+    body.focus-wordsearch-mode #studentWaitingLobby,
+    body.focus-wordsearch-mode #viewStudent .room-banner,
+    body.focus-wordsearch-mode #studentGameArea .card:first-child > h2,
+    body.focus-wordsearch-mode #studentGameArea .card:first-child > p,
+    body.focus-wordsearch-mode #studentGameArea .card:first-child > .story-box,
+    body.focus-wordsearch-mode #studentGameArea .card:first-child > .legend-bar,
+    body.focus-wordsearch-mode #viewBotTest .room-banner,
+    body.focus-wordsearch-mode #botScoreboard,
+    body.focus-wordsearch-mode #botGameArea .card:first-child > h2,
+    body.focus-wordsearch-mode #botGameArea .card:first-child > .story-box,
+    body.focus-wordsearch-mode #botGameArea .card:first-child > .legend-bar {
+      display: none !important;
+    }
+
+    body.focus-wordsearch-mode .container {
+      max-width: 100% !important;
+      width: 100% !important;
+      padding: 46px 10px 14px 10px !important;
+      margin: 0 !important;
+    }
+
+    body.focus-wordsearch-mode .game-layout {
+      display: flex !important;
+      flex-direction: column-reverse !important;
+      gap: 12px !important;
+      align-items: center !important;
+    }
+
+    body.focus-wordsearch-mode .game-layout .card {
+      width: 100% !important;
+      max-width: 680px !important;
+      margin: 0 auto !important;
+      padding: 12px !important;
+    }
+
+    body.focus-wordsearch-mode .grid-wrapper {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      width: 100%;
+    }
+
+    body.focus-wordsearch-mode .ws-grid {
+      width: min(88vw, 68vh, 520px) !important;
+      height: min(88vw, 68vh, 520px) !important;
+    }
   </style>
 </head>
 <body>
@@ -168,6 +237,8 @@
   const SUPABASE_KEY = "sb_publishable_XvY-BRmqI19BNPevoPUMLQ_UZoGHnam";
 </script>
 
+<button type="button" id="btnExitFocusFab" class="exit-focus-fab hidden" onclick="exitFocusMode()">✕ Sair da Tela Cheia</button>
+
 <div class="confetti-layer hidden" id="confettiLayer"></div>
 
 <header>
@@ -176,7 +247,7 @@
   </div>
   <div class="header-actions">
     <div class="badge-status"><span class="dot online" id="netDot"></span> <span id="netText">Nuvem Pronta</span></div>
-    <button type="button" class="btn-ghost btn-sm" id="btnFullscreen" onclick="toggleFullscreen()">⛶ Tela Cheia</button>
+    <button type="button" class="btn-ghost btn-sm" id="btnFullscreen" onclick="enterFocusAndFullscreen()">⛶ Tela Cheia</button>
     <button type="button" class="btn-ghost btn-sm hidden" id="btnExitRoom" onclick="exitAndClearSession()">Sair</button>
   </div>
 </header>
@@ -510,7 +581,7 @@
 
     <div class="live-scoreboard" id="botScoreboard"></div>
 
-    <div class="game-layout">
+    <div id="botGameArea" class="game-layout">
       <div class="card">
         <h2>📜 Conto do Teste</h2>
         <div class="story-box" id="botStoryContainer"></div>
@@ -667,19 +738,53 @@
     }
   }
 
+  function enterFocusAndFullscreen() {
+    document.body.classList.add("focus-wordsearch-mode");
+    const fab = document.getElementById("btnExitFocusFab");
+    if (fab) fab.classList.remove("hidden");
+
+    const el = document.documentElement;
+    const reqFs = el.requestFullscreen || el.webkitRequestFullscreen || el.msRequestFullscreen;
+    if (reqFs && !document.fullscreenElement && !document.webkitFullscreenElement) {
+      try {
+        const res = reqFs.call(el);
+        if (res && typeof res.catch === "function") res.catch(() => {});
+      } catch (_) {}
+    }
+  }
+
+  function exitFocusMode() {
+    document.body.classList.remove("focus-wordsearch-mode");
+    const fab = document.getElementById("btnExitFocusFab");
+    if (fab) fab.classList.add("hidden");
+
+    const exitFs = document.exitFullscreen || document.webkitExitFullscreen || document.msExitFullscreen;
+    if (exitFs && (document.fullscreenElement || document.webkitFullscreenElement)) {
+      try {
+        const res = exitFs.call(document);
+        if (res && typeof res.catch === "function") res.catch(() => {});
+      } catch (_) {}
+    }
+  }
+
   document.addEventListener("DOMContentLoaded", () => {
     const loggedBox = document.getElementById("teacherLoggedBox");
-    if (!loggedBox) return;
+    if (loggedBox) {
+      const syncLoggedState = () => {
+        if (!loggedBox.classList.contains("hidden")) {
+          selectLobbyRole("teacher");
+        }
+      };
+      syncLoggedState();
+      const observer = new MutationObserver(syncLoggedState);
+      observer.observe(loggedBox, { attributes: true, attributeFilter: ["class"] });
+    }
 
-    const syncLoggedState = () => {
-      if (!loggedBox.classList.contains("hidden")) {
-        selectLobbyRole("teacher");
+    document.addEventListener("fullscreenchange", () => {
+      if (!document.fullscreenElement && document.body.classList.contains("focus-wordsearch-mode")) {
+        exitFocusMode();
       }
-    };
-
-    syncLoggedState();
-    const observer = new MutationObserver(syncLoggedState);
-    observer.observe(loggedBox, { attributes: true, attributeFilter: ["class"] });
+    });
   });
 </script>
 </body>
