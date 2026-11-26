@@ -1,8 +1,8 @@
 :root {
-  --bg-dark: #090d16;
-  --bg-gradient: radial-gradient(circle at top right, #1e1b4b 0%, #0f172a 45%, #090d16 100%);
-  --bg-card: rgba(30, 41, 59, 0.94);
-  --bg-panel: #0b1120;
+  --bg-dark: #050f24;
+  --bg-gradient: linear-gradient(160deg, #06132b 0%, #091d42 52%, #051026 100%);
+  --bg-card: rgba(15, 36, 76, 0.92);
+  --bg-panel: #071633;
   --accent: #38bdf8;
   --purple: #a855f7;
   --gold: #fbbf24;
@@ -12,7 +12,7 @@
   --danger: #f43f5e;
   --text-main: #f8fafc;
   --text-muted: #94a3b8;
-  --border: rgba(148, 163, 184, 0.22);
+  --border: rgba(125, 211, 252, 0.24);
 }
 
 * {
@@ -25,8 +25,13 @@
 }
 
 body {
-  background: var(--bg-gradient);
-  background-color: var(--bg-dark);
+  background-color: #050f24;
+  background-image:
+    radial-gradient(circle at 15% 18%, rgba(56, 189, 248, 0.24) 0%, transparent 42%),
+    radial-gradient(circle at 85% 15%, rgba(37, 99, 235, 0.28) 0%, transparent 45%),
+    radial-gradient(circle at 50% 88%, rgba(14, 165, 233, 0.18) 0%, transparent 50%),
+    linear-gradient(160deg, #06132b 0%, #091d42 52%, #051026 100%);
+  background-attachment: fixed;
   color: var(--text-main);
   min-height: 100dvh;
   display: flex;
@@ -40,13 +45,17 @@ body.pseudo-fullscreen {
   overflow-y: auto;
   width: 100vw;
   height: 100dvh;
-  background: var(--bg-gradient);
-  background-color: var(--bg-dark);
+  background-color: #050f24;
+  background-image:
+    radial-gradient(circle at 15% 18%, rgba(56, 189, 248, 0.24) 0%, transparent 42%),
+    radial-gradient(circle at 85% 15%, rgba(37, 99, 235, 0.28) 0%, transparent 45%),
+    radial-gradient(circle at 50% 88%, rgba(14, 165, 233, 0.18) 0%, transparent 50%),
+    linear-gradient(160deg, #06132b 0%, #091d42 52%, #051026 100%);
 }
 
 header {
-  background: rgba(11, 17, 32, 0.96);
-  border-bottom: 1px solid rgba(56, 189, 248, 0.25);
+  background: rgba(7, 22, 51, 0.94);
+  border-bottom: 1px solid rgba(56, 189, 248, 0.28);
   padding: 12px 20px;
   display: flex;
   justify-content: space-between;
@@ -85,7 +94,7 @@ header {
   border-radius: 999px;
   font-size: 0.8rem;
   font-weight: 700;
-  background: rgba(15, 23, 42, 0.9);
+  background: rgba(7, 22, 51, 0.92);
   border: 1px solid var(--border);
   display: flex;
   align-items: center;
@@ -122,7 +131,7 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 .btn-gold { background: linear-gradient(135deg, #fbbf24, #d97706); color: #0f172a; }
 .btn-purple { background: linear-gradient(135deg, #a855f7, #7e22ce); color: #fff; }
 .btn-danger { background: linear-gradient(135deg, #f43f5e, #be123c); color: #fff; }
-.btn-ghost { background: rgba(30, 41, 59, 0.6); border: 1px solid var(--border); color: var(--text-main); }
+.btn-ghost { background: rgba(15, 43, 92, 0.72); border: 1px solid var(--border); color: var(--text-main); }
 .btn-sm { padding: 7px 13px; font-size: 0.85rem; }
 .btn-xs { padding: 4px 8px; font-size: 0.72rem; border-radius: 7px; }
 
@@ -150,7 +159,7 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 }
 
 .hero-intro p {
-  color: var(--text-muted);
+  color: #cbd5e1;
   font-size: 0.95rem;
 }
 
@@ -165,7 +174,7 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
   border: 1px solid var(--border);
   border-radius: 16px;
   padding: 22px;
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+  box-shadow: 0 12px 32px rgba(2, 10, 28, 0.55);
 }
 
 .card-student { border-top: 4px solid var(--accent); }
@@ -389,11 +398,11 @@ input:focus, textarea:focus, select:focus { border-color: var(--accent); }
   font-weight: 800;
   padding: 3px 8px;
   border-radius: 6px;
-  color: #090d16;
+  color: #050f24;
 }
 
 .room-banner {
-  background: linear-gradient(135deg, rgba(30, 41, 59, 0.95) 0%, rgba(15, 23, 42, 0.98) 100%);
+  background: linear-gradient(135deg, rgba(15, 43, 92, 0.95) 0%, rgba(7, 22, 51, 0.98) 100%);
   border: 1px solid rgba(56, 189, 248, 0.45);
   border-radius: 16px;
   padding: 16px 22px;
@@ -422,7 +431,7 @@ input:focus, textarea:focus, select:focus { border-color: var(--accent); }
   text-align: center;
   padding: 38px 24px;
   border: 2px solid rgba(56, 189, 248, 0.45);
-  background: linear-gradient(180deg, rgba(30, 41, 59, 0.95) 0%, rgba(11, 17, 32, 0.98) 100%);
+  background: linear-gradient(180deg, rgba(15, 43, 92, 0.95) 0%, rgba(7, 22, 51, 0.98) 100%);
 }
 
 .pulse-ring {
@@ -557,7 +566,7 @@ th {
 }
 
 .story-box {
-  background: #0b1120;
+  background: var(--bg-panel);
   padding: 16px;
   border-radius: 12px;
   border: 1px solid rgba(56, 189, 248, 0.3);
@@ -578,7 +587,7 @@ th {
 }
 
 .word-tag.solved {
-  color: #090d16 !important;
+  color: #050f24 !important;
   border-color: transparent !important;
   font-weight: 800;
 }
@@ -600,7 +609,7 @@ th {
 }
 
 .chip.claimed {
-  color: #090d16;
+  color: #050f24;
   border-color: transparent;
   font-weight: 800;
 }
@@ -655,8 +664,8 @@ th {
 }
 
 .cell {
-  background: #1e293b;
-  border: 1px solid rgba(148, 163, 184, 0.16);
+  background: #102a5c;
+  border: 1px solid rgba(125, 211, 252, 0.2);
   border-radius: 6px;
   display: flex;
   align-items: center;
@@ -685,12 +694,12 @@ th {
 
 .cell.selected {
   background: linear-gradient(135deg, #38bdf8, #818cf8) !important;
-  color: #090d16 !important;
+  color: #050f24 !important;
   transform: scale(1.06);
 }
 
 .cell.found {
-  color: #090d16 !important;
+  color: #050f24 !important;
   font-weight: 900;
 }
 
@@ -707,7 +716,7 @@ th {
 .modal-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(5, 8, 17, 0.9);
+  background: rgba(5, 15, 36, 0.9);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -716,7 +725,7 @@ th {
 }
 
 .modal-card {
-  background: linear-gradient(180deg, #1e293b 0%, #0f172a 100%);
+  background: linear-gradient(180deg, #133470 0%, #071633 100%);
   border: 2px solid var(--accent);
   border-radius: 18px;
   max-width: 560px;
@@ -728,14 +737,14 @@ th {
 
 .modal-card.winner-showcase {
   border: 3px solid var(--gold);
-  background: radial-gradient(circle at top, rgba(251, 191, 36, 0.24) 0%, #1e293b 48%, #090d16 100%);
+  background: radial-gradient(circle at top, rgba(251, 191, 36, 0.24) 0%, #133470 48%, #050f24 100%);
   box-shadow: 0 0 45px rgba(251, 191, 36, 0.45);
 }
 
 .winner-banner-badge {
   display: inline-block;
   background: linear-gradient(135deg, #fbbf24, #f59e0b);
-  color: #090d16;
+  color: #050f24;
   font-weight: 900;
   font-size: 0.78rem;
   letter-spacing: 1.5px;
@@ -864,7 +873,7 @@ th {
   font-size: 0.8rem;
   color: var(--text-muted);
   border-top: 1px solid var(--border);
-  background: rgba(11, 17, 32, 0.85);
+  background: rgba(7, 22, 51, 0.88);
 }
 
 .site-footer a {
