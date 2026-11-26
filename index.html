@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="theme-color" content="#0b1120">
+  <title>CSI Torneio Morfológico &amp; Matemático - Plataforma EdTech</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <link rel="stylesheet" href="style.css">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+
+<script>
+  const SUPABASE_URL = "https://" + "tznqkmhqyyklpaluglqn" + ".supabase.co";
+  const SUPABASE_KEY = "sb_publishable_XvY-BRmqI19BNPevoPUMLQ_UZoGHnam";
+</script>
+
+<div class="confetti-layer hidden" id="confettiLayer"></div>
+
+<header>
+  <div class="brand">
+    🏆 CSI TORNEIO MORFOLÓGICO &amp; MATEMÁTICO <span class="brand-pill" id="modeBadge">EDTECH PRO</span>
+  </div>
+  <div class="header-actions">
+    <div class="badge-status"><span class="dot online" id="netDot"></span> <span id="netText">Nuvem Pronta</span></div>
+    <button type="button" class="btn-ghost btn-sm" id="btnFullscreen" onclick="toggleFullscreen()">⛶ Tela Cheia</button>
+    <button type="button" class="btn-ghost btn-sm hidden" id="btnExitRoom" onclick="exitAndClearSession()">Sair</button>
+  </div>
+</header>
+
+<div class="container">
+
+  <!-- TELA INICIAL -->
+  <div id="viewLobby">
+    <div class="hero-intro">
+      <h1>Plataforma Gamificada: Português + Matemática</h1>
+      <p>Acesso exclusivo para <strong>Professores Assinantes</strong> criarem salas ao vivo e <strong>Acesso Rápido Blindado</strong> para alunos sem duplicação de perfis.</p>
+    </div>
+
+    <div class="lobby-grid">
+      <div class="card card-student">
+        <h2>🎓 Portal do Aluno (Sala ao Vivo)</h2>
+        <p>Digite o código de 4 letras fornecido pelo professor e seu nome único. Se atualizar a página, entre novamente com os mesmos dados para retomar sua pontuação.</p>
+        <div class="form-group">
+          <label>Código da Sala (4 letras)</label>
+          <input type="text" id="inputPin" maxlength="4" placeholder="Ex: MAGO" style="text-transform:uppercase; font-weight:900; letter-spacing:4px; color:var(--gold);">
+        </div>
+        <div class="form-group">
+          <label>Seu Nome Completo (Identificador Único)</label>
+          <input type="text" id="inputStudentName" placeholder="Ex: Maria Silva">
+        </div>
+        <div class="form-group">
+          <label>Turma / Série</label>
+          <input type="text" id="inputStudentClass" placeholder="Ex: 8º Ano B">
+        </div>
+        <button type="button" class="btn-primary" id="btnJoinStudent" style="width:100%;" onclick="joinAsStudent()">🚀 Entrar na Sala de Espera</button>
+
+        <button type="button" class="btn-purple hidden" id="btnOpenBotTest" style="width:100%; margin-top:10px;" onclick="startInstantBotMatch()">🤖 Modo Teste (Jogar com 4 Bots)</button>
+
+        <div class="legend-bar" id="lobbyLegendBar"></div>
+      </div>
+
+      <div class="card card-teacher">
+        <h2>🧑‍🏫 Área do Professor (Acesso Restrito)</h2>
+
+        <div id="teacherAuthBox">
+          <p>Faça login com sua conta de professor para gerar salas e gerenciar torneios da turma.</p>
+          <div class="auth-tabs">
+            <button type="button" class="auth-tab active" id="tabLogin" onclick="switchAuthTab('login')">Entrar na Conta</button>
+            <button type="button" class="auth-tab" id="tabSignup" onclick="switchAuthTab('signup')">Criar Conta (7d Grátis)</button>
+          </div>
+
+          <div class="form-group hidden" id="signupNameGroup">
+            <label>Nome do Professor(a)</label>
+            <input type="text" id="authTeacherName" placeholder="Ex: Prof. Carlos">
+          </div>
+          <div class="form-group">
+            <label>E-mail Institucional ou Pessoal</label>
+            <input type="email" id="authEmail" placeholder="professor@escola.com.br">
+          </div>
+          <div class="form-group">
+            <label>Senha</label>
+            <input type="password" id="authPassword" placeholder="Mínimo 6 caracteres">
+          </div>
+
+          <button type="button" class="btn-gold" id="btnAuthSubmit" style="width:100%;" onclick="submitTeacherAuth()">🔐 Entrar como Professor</button>
+        </div>
+
+        <div id="teacherLoggedBox" class="hidden">
+          <div id="subscriptionBanner" class="plan-banner">
+            <div>
+              <strong id="teacherProfileName" style="color:#fff;">Professor</strong>
+              <div id="teacherSubStatusText" style="font-size:0.78rem; color:#34d399;">Assinatura Ativa</div>
+            </div>
+            <button type="button" class="btn-ghost btn-sm" onclick="logoutTeacher()">Sair da Conta</button>
+          </div>
+
+          <div id="adminBotControlBox" class="admin-control-box hidden">
+            <div>
+              <strong style="color:#e9d5ff; font-size:0.86rem;">🛡️ Controle Admin: Modo Teste (4 Bots)</strong>
+              <div id="adminBotStatusLabel" style="font-size:0.78rem; color:#cbd5e1;">Status: Bloqueado para visitantes</div>
+            </div>
+            <button type="button" class="btn-purple btn-sm" id="btnToggleBotTest" onclick="toggleBotTestPermission()">🔓 Liberar Teste</button>
+          </div>
+
+          <div id="adminModPanelBox" class="admin-story-box hidden">
+            <strong style="color:var(--gold); font-size:0.9rem; display:block; margin-bottom:6px;">👮 Painel Admin: Selecionar Moderadores</strong>
+            <div style="font-size:0.78rem; color:var(--text-muted); margin-bottom:8px;">Moderadores podem dar pontos bônus, recolocar ou eliminar jogadores nas salas.</div>
+            <div style="display:flex; gap:8px;">
+              <input type="email" id="adminModEmailInput" placeholder="e-mail do moderador@escola.com.br">
+              <button type="button" class="btn-gold btn-sm" onclick="addModeratorEmail()">+ Adicionar</button>
+            </div>
+            <div id="adminModeratorsList" class="mod-list-tags"></div>
+          </div>
+
+          <div id="adminStoryCreatorBox" class="admin-story-box hidden">
+            <strong style="color:var(--accent); font-size:0.9rem; display:block; margin-bottom:8px;">✍️ Painel Admin: Criar &amp; Filtrar Novo Conto</strong>
+            <div class="form-group">
+              <label>Título do Conto</label>
+              <input type="text" id="adminStoryTitle" placeholder="Ex: O Mistério do Farol Antigo">
+            </div>
+            <div class="form-group">
+              <label>Texto do Conto</label>
+              <textarea id="adminStoryText" placeholder="Escreva ou cole aqui o conto. Ex: O velho faroleiro acendeu a lanterna azul ontem à noite..."></textarea>
+            </div>
+            <div style="display:flex; gap:8px; flex-wrap:wrap;">
+              <button type="button" class="btn-primary btn-sm" onclick="filterAdminStoryWords()">🔍 Filtrar Palavras</button>
+              <button type="button" class="btn-success btn-sm" id="btnSaveAdminStory" onclick="saveFilteredAdminStory()">💾 Salvar Conto no Banco</button>
+            </div>
+            <div id="adminFilteredPreview" class="hidden" style="margin-top:10px;">
+              <div style="font-size:0.78rem; color:#cbd5e1; margin-bottom:4px;">Selecione até 16 palavras filtradas e ajuste a classe gramatical:</div>
+              <div id="adminFilteredWordsList" class="filtered-words-grid"></div>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label>Nome da Turma / Identificação da Aula</label>
+            <input type="text" id="inputRoomLabel" placeholder="Ex: 7º Ano A - Manhã" value="Turma A">
+          </div>
+          <button type="button" class="btn-gold" id="btnCreateRoom" style="width:100%;" onclick="createTeacherRoom()">⚡ Abrir Sala do Torneio</button>
+
+          <div id="savedRoomsBox" class="saved-rooms-box">
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+              <span id="savedRoomsHeaderTitle" style="font-size:0.84rem; font-weight:800; color:var(--accent);">📂 Minhas Salas Abertas / Recentes</span>
+              <button type="button" class="btn-ghost btn-sm" onclick="loadRecentTeacherRooms()">↻ Atualizar</button>
+            </div>
+            <div id="savedRoomsList" class="saved-rooms-list">
+              <div style="font-size:0.82rem; color:var(--text-muted);">Carregando salas...</div>
+            </div>
+          </div>
+
+          <div id="upgradeBox" class="hidden" style="margin-top:14px; padding:14px; background:var(--bg-panel); border:1px solid var(--gold); border-radius:12px; text-align:center;">
+            <strong style="color:var(--gold);">🔒 Período de Teste Encerrado</strong>
+            <p style="font-size:0.84rem; margin:6px 0 10px 0;">Ative sua assinatura mensal para continuar criando salas ilimitadas para suas turmas.</p>
+            <button type="button" class="btn-success btn-sm" style="width:100%;" onclick="showToast('Integre aqui o link de checkout Stripe / Mercado Pago!')">💳 Assinar Plano Professor Pro</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card card-ranking">
+      <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:10px;">
+        <h2 style="margin-bottom:0;">🏆 Ranking dos Melhores</h2>
+        <button type="button" class="btn-ghost btn-sm" onclick="loadBestPlayersRanking()">↻ Atualizar Ranking</button>
+      </div>
+      <p style="margin-bottom:12px;">Destaques acumulados nas partidas registradas na plataforma (pontos, palavras encontradas e desafios matemáticos).</p>
+      <div style="overflow-x:auto;">
+        <table>
+          <thead>
+            <tr>
+              <th>Pos.</th>
+              <th>Investigador</th>
+              <th>Turma</th>
+              <th>Pontos</th>
+              <th>Palavras</th>
+              <th>Mat.</th>
+            </tr>
+          </thead>
+          <tbody id="bestRankingBody">
+            <tr><td colspan="6" style="text-align:center; color:var(--text-muted);">Carregando ranking...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- PAINEL DO PROFESSOR (AO VIVO) -->
+  <div id="viewTeacher" class="hidden">
+    <div class="room-banner">
+      <div>
+        <div style="font-size:0.8rem; color:var(--accent); font-weight:800; text-transform:uppercase;">Código de Acesso da Turma:</div>
+        <div style="display:flex; align-items:center; gap:14px; margin-top:6px;">
+          <div class="pin-display" id="teacherPinDisplay">----</div>
+          <div>
+            <div id="teacherRoomTitle" style="font-weight:900; font-size:1.15rem;">Torneio Ativo</div>
+            <div id="teacherStageBadge" style="color:var(--gold); font-size:0.86rem; font-weight:800;">Aguardando Jogadores...</div>
+            <div id="connectedCount" style="color:var(--success); font-size:0.88rem; font-weight:700;">0 alunos na sala</div>
+          </div>
+        </div>
+      </div>
+      <div style="display:flex; gap:10px; flex-wrap:wrap;">
+        <button type="button" class="btn-success" id="btnStartTournament" onclick="startTournamentMatch()">🚀 Iniciar Partida Agora</button>
+        <button type="button" class="btn-gold btn-sm hidden" id="btnForceNextStage" onclick="advanceTournamentStage()">⏭️ Encerrar Fase &amp; Classificar</button>
+        <button type="button" class="btn-success btn-sm" onclick="exportCSV()">📥 Exportar (CSV)</button>
+        <button type="button" class="btn-primary btn-sm" onclick="restartFullTournament()">🔄 Novo Torneio</button>
+      </div>
+    </div>
+
+    <div id="dbErrorBanner" class="card hidden" style="margin-bottom:18px; border-left:4px solid var(--danger); padding:14px 18px;">
+      <strong style="color:#fda4af;">⚠️ Erro de Conexão com Supabase:</strong> <span id="dbErrorDetail" style="color:#e2e8f0; font-size:0.9rem;"></span>
+    </div>
+
+    <div class="teacher-layout">
+      <div class="card">
+        <h2 id="teacherRankingTitle">🏆 Participantes &amp; Classificação ao Vivo</h2>
+        <div class="podium" id="teacherPodium">
+          <div class="podium-item rank-1"><div style="font-size:1.5rem;">🥇</div><div style="font-weight:800;">Aguardando...</div></div>
+          <div class="podium-item rank-2"><div style="font-size:1.5rem;">🥈</div><div style="font-weight:800;">Aguardando...</div></div>
+          <div class="podium-item rank-3"><div style="font-size:1.5rem;">🥉</div><div style="font-weight:800;">Aguardando...</div></div>
+        </div>
+
+        <div style="overflow-x:auto;">
+          <table>
+            <thead>
+              <tr>
+                <th>Pos.</th>
+                <th>Investigador</th>
+                <th>Status</th>
+                <th>Pts Fase</th>
+                <th>Pts Total</th>
+                <th>Palavras</th>
+                <th>Mat.</th>
+                <th id="teacherModColHeader" class="hidden">Moderação</th>
+              </tr>
+            </thead>
+            <tbody id="teacherTableBody">
+              <tr><td colspan="8" style="text-align:center; color:var(--text-muted);">Projete o código acima e aguarde os alunos entrarem antes de clicar em Iniciar Partida!</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>📋 Evidências da Fase (<span id="teacherProgress">0/16</span>)</h2>
+        <p style="margin-bottom:10px;">Enquanto a sala estiver aguardando, os alunos ficam na tela de espera sem poder ver o tabuleiro.</p>
+        <div class="word-chips" id="teacherWordChips"></div>
+        <div class="legend-bar" id="teacherLegendBar"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- TELA DO ALUNO -->
+  <div id="viewStudent" class="hidden">
+    <div class="room-banner" style="padding:12px 18px;">
+      <div>
+        <strong id="studentHeaderName" style="color:var(--accent); font-size:1.05rem;">Aluno</strong>
+        <span id="studentHeaderClass" style="color:var(--text-muted); font-size:0.85rem; margin-left:6px;"></span>
+      </div>
+      <div style="display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
+        <div class="math-meter" id="mathGateIndicator">⏳ Aguardando início</div>
+        <div>Pontos: <strong id="studentScore" style="color:var(--gold); font-size:1.2rem;">0</strong></div>
+        <div>Restantes: <strong id="studentRemaining" style="color:var(--success); font-size:1.1rem;">16</strong></div>
+      </div>
+    </div>
+
+    <div id="studentWaitingLobby" class="card waiting-lobby-box">
+      <div class="pulse-ring">⏳</div>
+      <h2 style="justify-content:center; font-size:1.5rem; color:#f8fafc; margin-bottom:8px;">Aguardando início da partida...</h2>
+      <p style="color:#cbd5e1; font-size:0.96rem; margin-bottom:14px;">Você já está conectado na sala <strong id="waitingRoomCode" style="color:var(--gold); letter-spacing:2px;">----</strong>! O jogo começará automaticamente assim que o professor apertar <strong>Iniciar Partida</strong>.</p>
+      <div id="studentSyncHint" style="font-size:0.8rem; color:#94a3b8; margin-bottom:12px;">Sincronizado com a lousa</div>
+      <div style="background:var(--bg-panel); border:1px solid var(--border); border-radius:12px; padding:14px;">
+        <div style="font-size:0.82rem; color:var(--accent); font-weight:800; text-transform:uppercase;">Participantes na sala (<span id="waitingPlayersCount">1</span>):</div>
+        <div class="waiting-players-pills" id="waitingPlayersList"></div>
+      </div>
+    </div>
+
+    <div id="studentGameArea" class="game-layout hidden">
+      <div class="card">
+        <h2 id="studentStoryTitle">📜 Conto</h2>
+        <p style="margin-bottom:10px;">Leia com atenção — cada nova fase traz um novo conto e novas palavras!</p>
+        <div class="story-box" id="storyContainer"></div>
+        <h3 style="font-size:0.92rem; margin-bottom:10px; color:var(--accent);">Evidências da Fase (por cor de classe):</h3>
+        <div class="word-chips" id="studentWordChips"></div>
+        <div class="legend-bar" id="studentLegendBar"></div>
+      </div>
+
+      <div class="card">
+        <div class="grid-header-bar">
+          <span style="font-weight:800; color:var(--accent); font-size:0.92rem;">🔎 GRADE DE BUSCA (14×14)</span>
+          <span style="font-size:0.78rem; color:var(--text-muted);">Arraste ou toque nas letras</span>
+        </div>
+        <div class="grid-wrapper">
+          <div class="ws-grid" id="wsGrid"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- TELA DE MODO TESTE COM 4 BOTS -->
+  <div id="viewBotTest" class="hidden">
+    <div class="room-banner" style="padding:12px 18px;">
+      <div>
+        <strong style="color:var(--purple); font-size:1.05rem;">🤖 MODO TESTE (4 BOTS)</strong>
+        <span id="botTestStoryLabel" style="color:var(--text-muted); font-size:0.86rem; margin-left:8px;"></span>
+      </div>
+      <div style="display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
+        <div class="math-meter" id="botMathGateIndicator">🧮 Portal: 0/2 palavras</div>
+        <div>Seus Pontos: <strong id="botHumanScore" style="color:var(--gold); font-size:1.2rem;">0</strong></div>
+        <div>Restantes: <strong id="botRemaining" style="color:var(--success); font-size:1.1rem;">16</strong></div>
+        <button type="button" class="btn-gold btn-sm" onclick="startInstantBotMatch()">🔄 Novo Conto</button>
+      </div>
+    </div>
+
+    <div class="live-scoreboard" id="botScoreboard"></div>
+
+    <div class="game-layout">
+      <div class="card">
+        <h2>📜 Conto do Teste</h2>
+        <div class="story-box" id="botStoryContainer"></div>
+        <h3 style="font-size:0.92rem; margin-bottom:10px; color:var(--accent);">Palavras:</h3>
+        <div class="word-chips" id="botWordChips"></div>
+        <div class="legend-bar" id="botLegendBar"></div>
+      </div>
+
+      <div class="card">
+        <div class="grid-header-bar">
+          <span style="font-weight:800; color:var(--accent); font-size:0.92rem;">🔎 GRADE (14×14)</span>
+          <span style="font-size:0.78rem; color:var(--text-muted);">Arraste ou toque nas letras</span>
+        </div>
+        <div class="grid-wrapper">
+          <div class="ws-grid" id="botWsGrid"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- MODAL 1: CLASSIFICAÇÃO GRAMATICAL -->
+<div id="quizModal" class="modal-backdrop hidden">
+  <div class="modal-card">
+    <div style="font-size:0.8rem; color:var(--gold); font-weight:800; text-transform:uppercase;">⚡ Evidência Localizada!</div>
+    <h2 style="margin:6px 0 10px 0;">Palavra: "<span id="modalWordText" style="color:var(--accent);"></span>"</h2>
+    <div id="modalContextSentence" style="background:var(--bg-panel); padding:12px; border-radius:10px; font-size:0.92rem; margin-bottom:12px; border-left:4px solid var(--gold);"></div>
+    <p style="font-size:0.9rem; color:#e2e8f0;">Selecione a <strong>classe gramatical</strong> dessa palavra no contexto acima:</p>
+    <div id="modalHint" class="hidden" style="margin-top:10px; padding:10px; background:rgba(244, 63, 94, 0.16); border:1px solid var(--danger); border-radius:8px; font-size:0.85rem; color:#fda4af;"></div>
+    <div class="class-options" id="classOptionsContainer"></div>
+    <button type="button" class="btn-ghost btn-sm" style="margin-top:14px; width:100%;" onclick="closeQuizModal()">Cancelar</button>
+  </div>
+</div>
+
+<!-- MODAL 2: TRAVA MATEMÁTICA COLETIVA -->
+<div id="mathModal" class="modal-backdrop hidden">
+  <div class="modal-card math-lock">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <span style="font-size:0.8rem; color:#d8b4fe; font-weight:800; text-transform:uppercase;">🔒 PORTAL MATEMÁTICO</span>
+      <span id="mathOpBadge" style="background:var(--purple); color:#fff; font-size:0.75rem; font-weight:800; padding:3px 9px; border-radius:999px;">OPERAÇÃO</span>
+    </div>
+    <h2 style="margin:8px 0 6px 0; color:#f3e8ff;">Resolva para liberar o tabuleiro!</h2>
+    <div id="mathAttemptsBadge" class="attempts-pill">Tentativas restantes: 3 de 3</div>
+    <p style="font-size:0.86rem; color:#cbd5e1; margin-bottom:10px;" id="mathTriggerReason">A rodada alcançou mais 2 palavras! Se errar, uma nova conta será gerada (máximo 3 erros):</p>
+    <div id="mathQuestionBox" style="background:var(--bg-panel); padding:14px; border-radius:12px; font-size:1.05rem; line-height:1.5; margin-bottom:12px; border-left:4px solid var(--purple); color:#fff; font-weight:700;"></div>
+    <div id="mathHint" class="hidden" style="margin-top:8px; padding:10px; background:rgba(244, 63, 94, 0.16); border:1px solid var(--danger); border-radius:8px; font-size:0.85rem; color:#fda4af;"></div>
+    <div class="math-options" id="mathOptionsContainer"></div>
+  </div>
+</div>
+
+<!-- MODAL 2B: RECOMPOSIÇÃO (2 MIN OU 3 CONTAS; 3 ERROS = ELIMINAÇÃO) -->
+<div id="recompositionModal" class="modal-backdrop hidden">
+  <div class="modal-card repechage-lock">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <span style="font-size:0.8rem; color:var(--gold); font-weight:800; text-transform:uppercase;">🛠️ RECOMPOSIÇÃO ANTI-CHUTE</span>
+      <span id="recompModeBadge" style="background:var(--gold); color:#0f172a; font-size:0.75rem; font-weight:900; padding:3px 10px; border-radius:999px;">3 ERROS ATINGIDOS</span>
+    </div>
+    <h2 style="margin:8px 0 6px 0; color:#fef3c7;">Você atingiu o limite de 3 erros!</h2>
+    <p style="font-size:0.86rem; color:#cbd5e1; margin-bottom:10px;">Espere <strong>2 minutos</strong> ou acerte <strong>3 contas</strong> para voltar (errar 3 vezes nas contas elimina você):</p>
+
+    <div class="recomp-choice-grid" id="recompChoiceButtons">
+      <button type="button" class="btn-ghost btn-sm" id="btnChooseTimer" onclick="activateRecompTimer()">⏳ Esperar 2 minutos</button>
+      <button type="button" class="btn-gold btn-sm" id="btnChooseMath3" onclick="activateRecompMath3()">🧮 Resolver 3 contas</button>
+    </div>
+
+    <div id="recompTimerArea" class="recomp-countdown-box">
+      <div style="font-size:0.84rem; color:#cbd5e1;">Contagem regressiva de recomposição:</div>
+      <div class="recomp-timer-num" id="recompTimerDisplay">02:00</div>
+      <div style="font-size:0.78rem; color:var(--text-muted);">Aguarde os 2 minutos ou clique em "Resolver 3 contas" para voltar imediatamente.</div>
+    </div>
+
+    <div id="recompMathArea" class="hidden" style="margin-top:10px;">
+      <div id="recompMathErrorsBadge" class="attempts-pill">Erros na recomposição: 0 de 3</div>
+      <div id="recompMathQuestionBox" style="background:var(--bg-panel); padding:14px; border-radius:12px; font-size:1.02rem; line-height:1.5; margin-bottom:10px; border-left:4px solid var(--gold); color:#fff; font-weight:700;"></div>
+      <div id="recompMathHint" class="hidden" style="margin-bottom:8px; padding:8px 10px; background:rgba(244, 63, 94, 0.16); border:1px solid var(--danger); border-radius:8px; font-size:0.82rem; color:#fda4af;"></div>
+      <div class="math-options" id="recompMathOptionsContainer"></div>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL 3: REPESCAGEM MATEMÁTICA -->
+<div id="repechageModal" class="modal-backdrop hidden">
+  <div class="modal-card repechage-lock">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <span style="font-size:0.8rem; color:var(--gold); font-weight:800; text-transform:uppercase;">⚔️ REPESCAGEM DE SOBREVIVÊNCIA</span>
+      <span id="repProgressBadge" style="background:var(--gold); color:#0f172a; font-size:0.78rem; font-weight:900; padding:3px 10px; border-radius:999px;">QUESTÃO 1 DE 3</span>
+    </div>
+    <h2 style="margin:8px 0 8px 0; color:#fef3c7;">Responda 3 contas seguidas para voltar!</h2>
+    <p style="font-size:0.86rem; color:#fda4af; margin-bottom:12px; font-weight:700;">⚠️ Cuidado: Não chute! Se você errar 1 única pergunta, será eliminado definitivamente desta partida.</p>
+    <div id="repQuestionBox" style="background:var(--bg-panel); padding:16px; border-radius:12px; font-size:1.08rem; line-height:1.5; margin-bottom:12px; border-left:4px solid var(--gold); color:#fff; font-weight:700;"></div>
+    <div class="math-options" id="repOptionsContainer"></div>
+  </div>
+</div>
+
+<!-- MODAL 4: ELIMINADO DEFINITIVAMENTE -->
+<div id="eliminatedModal" class="modal-backdrop hidden">
+  <div class="modal-card eliminated-lock" style="text-align:center;">
+    <div style="font-size:3rem; margin-bottom:8px;">🚫</div>
+    <h2 style="justify-content:center; color:var(--danger); font-size:1.45rem;">Você foi Eliminado da Partida!</h2>
+    <p id="elimReasonText" style="margin:10px 0 16px 0; color:#cbd5e1; font-size:0.95rem;">Você excedeu o limite de erros e não poderá retornar nesta rodada.</p>
+    <div style="background:var(--bg-panel); border:1px solid var(--border); border-radius:12px; padding:14px; margin-bottom:14px;">
+      <div><strong>Sua Pontuação Acumulada:</strong> <span id="elimScore" style="color:var(--gold); font-weight:900;">0 pts</span></div>
+      <div style="font-size:0.84rem; color:var(--text-muted); margin-top:4px;">Acompanhe a final na lousa até o professor iniciar um novo torneio.</div>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL 5: PÓDIO FINAL / VOCÊ VENCEU -->
+<div id="victoryModal" class="modal-backdrop hidden">
+  <div class="modal-card" id="victoryModalCard" style="border-color:var(--gold); text-align:center;">
+    <div id="winnerSpecialBadge" class="winner-banner-badge hidden">👑 CAMPEÃO DA RODADA</div>
+    <div id="victoryEmoji" style="font-size:3.2rem; margin-bottom:6px;">🏆</div>
+    <h2 style="justify-content:center; color:var(--gold); font-size:1.65rem;" id="victoryModalTitle">Pódio Oficial dos 3 Vencedores!</h2>
+    <p style="margin-top:6px; color:#cbd5e1;" id="victoryModalSubtitle">O torneio foi encerrado! Confira a classificação:</p>
+    <div id="finalTop3List" style="background:var(--bg-panel); border:1px solid var(--gold); border-radius:12px; padding:16px; margin:14px 0; text-align:left;"></div>
+    <button type="button" class="btn-gold" id="btnCloseVictoryModal" style="width:100%;" onclick="triggerFinalBoardCelebration()">✨ Ver Tabuleiro Final</button>
+  </div>
+</div>
+
+<footer class="site-footer">
+  CSI Torneio Morfológico &amp; Matemático • <a href="privacidade.html">Política de Privacidade (LGPD)</a>
+</footer>
+
+<script src="app.js"></script>
+</body>
+</html>
