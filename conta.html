@@ -1,0 +1,516 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CSI Torneio — Minha Conta e Senha</title>
+  <style>
+    :root {
+      --bg: #0b1220;
+      --card: #131d33;
+      --border: #253659;
+      --text: #f1f5f9;
+      --muted: #94a3b8;
+      --primary: #38bdf8;
+      --primary-hover: #0ea5e9;
+      --secondary: #1e293b;
+      --danger: #f87171;
+      --success: #4ade80;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+
+    .container {
+      width: 100%;
+      max-width: 460px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 24px;
+      box-shadow: 0 20px 45px rgba(0, 0, 0, 0.35);
+    }
+
+    .top-link {
+      display: inline-block;
+      margin-bottom: 14px;
+      color: var(--primary);
+      text-decoration: none;
+      font-size: 0.9rem;
+      font-weight: 600;
+    }
+
+    .top-link:hover {
+      text-decoration: underline;
+    }
+
+    h1 {
+      margin: 0 0 6px;
+      font-size: 1.35rem;
+    }
+
+    .subtitle {
+      margin: 0 0 20px;
+      color: var(--muted);
+      font-size: 0.92rem;
+      line-height: 1.45;
+    }
+
+    .box {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 16px;
+      margin-bottom: 16px;
+      background: rgba(11, 18, 32, 0.55);
+    }
+
+    .box h2 {
+      margin: 0 0 10px;
+      font-size: 1rem;
+    }
+
+    label {
+      display: block;
+      font-size: 0.85rem;
+      color: var(--muted);
+      margin-bottom: 6px;
+    }
+
+    input {
+      width: 100%;
+      padding: 10px 12px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: #0b1220;
+      color: var(--text);
+      font-size: 0.95rem;
+      margin-bottom: 12px;
+    }
+
+    input:focus {
+      outline: none;
+      border-color: var(--primary);
+    }
+
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    button {
+      cursor: pointer;
+      border: none;
+      border-radius: 8px;
+      padding: 10px 14px;
+      font-size: 0.9rem;
+      font-weight: 600;
+      transition: background 0.15s ease, opacity 0.15s ease;
+    }
+
+    button:disabled {
+      opacity: 0.55;
+      cursor: not-allowed;
+    }
+
+    .btn-primary {
+      background: var(--primary);
+      color: #061322;
+    }
+
+    .btn-primary:hover:not(:disabled) {
+      background: var(--primary-hover);
+    }
+
+    .btn-secondary {
+      background: var(--secondary);
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+
+    .btn-secondary:hover:not(:disabled) {
+      background: #273549;
+    }
+
+    .status {
+      margin-top: 12px;
+      padding: 10px 12px;
+      border-radius: 8px;
+      font-size: 0.88rem;
+      line-height: 1.4;
+      display: none;
+    }
+
+    .status.show {
+      display: block;
+    }
+
+    .status.info {
+      background: rgba(56, 189, 248, 0.14);
+      border: 1px solid rgba(56, 189, 248, 0.35);
+      color: #bae6fd;
+    }
+
+    .status.success {
+      background: rgba(74, 222, 128, 0.14);
+      border: 1px solid rgba(74, 222, 128, 0.35);
+      color: #bbf7d0;
+    }
+
+    .status.error {
+      background: rgba(248, 113, 113, 0.14);
+      border: 1px solid rgba(248, 113, 113, 0.35);
+      color: #fecaca;
+    }
+
+    .hidden {
+      display: none;
+    }
+
+    .user-card {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 14px;
+      padding: 12px;
+      border-radius: 8px;
+      background: rgba(30, 41, 59, 0.75);
+      border: 1px solid var(--border);
+      font-size: 0.88rem;
+    }
+
+    .user-info strong {
+      display: block;
+      color: var(--text);
+      margin-bottom: 2px;
+    }
+
+    .user-info span {
+      color: var(--muted);
+      word-break: break-all;
+    }
+  </style>
+</head>
+<body>
+  <main class="container">
+    <a href="/" class="top-link">← Voltar para o CSI Torneio</a>
+
+    <h1 id="pageTitle">Acesso do Professor</h1>
+    <p id="pageSubtitle" class="subtitle">Entre na sua conta ou recupere sua senha por e-mail.</p>
+
+    <!-- Cabeçalho da Página do Usuário (aparece automaticamente quando já está logado) -->
+    <div id="userHeader" class="user-card hidden">
+      <div class="user-info">
+        <strong>Perfil do Professor</strong>
+        <span id="userEmailText">Carregando...</span>
+      </div>
+      <button type="button" id="btnLogout" class="btn-secondary">Sair</button>
+    </div>
+
+    <!-- Tela 1: Login + Botão Esqueci minha senha -->
+    <section id="loginSection" class="box">
+      <h2>Entrar</h2>
+      <form id="loginForm">
+        <label for="loginEmail">E-mail</label>
+        <input id="loginEmail" type="email" autocomplete="email" required placeholder="professor@escola.edu.br" />
+
+        <label for="loginPassword">Senha</label>
+        <input id="loginPassword" type="password" autocomplete="current-password" required placeholder="Sua senha" />
+
+        <div class="actions">
+          <button type="submit" id="btnLogin" class="btn-primary">Entrar</button>
+          <button type="button" id="btnForgotPassword" class="btn-secondary">Esqueci minha senha</button>
+        </div>
+      </form>
+    </section>
+
+    <!-- Tela 2: Pedir link de redefinição de senha -->
+    <section id="forgotSection" class="box hidden">
+      <h2>Recuperar senha</h2>
+      <form id="forgotForm">
+        <label for="forgotEmail">Digite o e-mail da sua conta</label>
+        <input id="forgotEmail" type="email" autocomplete="email" required placeholder="professor@escola.edu.br" />
+
+        <div class="actions">
+          <button type="submit" id="btnSendLink" class="btn-primary">Enviar link por e-mail</button>
+          <button type="button" id="btnBackLogin" class="btn-secondary">Voltar</button>
+        </div>
+      </form>
+    </section>
+
+    <!-- Tela 3: Alterar senha (quando logado) OU Redefinir senha (quando vem pelo link do e-mail) -->
+    <section id="passwordSection" class="box hidden">
+      <h2 id="passwordBoxTitle">Alterar minha senha</h2>
+      <form id="passwordForm">
+        <label for="newPassword">Nova senha (mínimo 6 caracteres)</label>
+        <input id="newPassword" type="password" autocomplete="new-password" minlength="6" required placeholder="Digite a nova senha" />
+
+        <label for="confirmPassword">Confirmar nova senha</label>
+        <input id="confirmPassword" type="password" autocomplete="new-password" minlength="6" required placeholder="Repita a nova senha" />
+
+        <div class="actions">
+          <button type="submit" id="btnSavePassword" class="btn-primary">Salvar nova senha</button>
+        </div>
+      </form>
+    </section>
+
+    <div id="statusBox" class="status" role="status" aria-live="polite"></div>
+  </main>
+
+  <script type="module">
+    import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+
+    const SUPABASE_URL = "https://tznqkmhqyyklpaluglqn.supabase.co";
+    const SUPABASE_ANON_KEY = "sb_publishable_XvY-BRmqI19BNPevoPUMLQ_UZoGHnam";
+    const REDIRECT_URL = `${window.location.origin}/conta.html`;
+
+    const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      auth: {
+        persistSession: true,
+        autoRefreshToken: true,
+        detectSessionInUrl: true,
+      },
+    });
+
+    const ui = {
+      pageTitle: document.getElementById("pageTitle"),
+      pageSubtitle: document.getElementById("pageSubtitle"),
+      userHeader: document.getElementById("userHeader"),
+      userEmailText: document.getElementById("userEmailText"),
+      btnLogout: document.getElementById("btnLogout"),
+      loginSection: document.getElementById("loginSection"),
+      loginForm: document.getElementById("loginForm"),
+      loginEmail: document.getElementById("loginEmail"),
+      loginPassword: document.getElementById("loginPassword"),
+      btnLogin: document.getElementById("btnLogin"),
+      btnForgotPassword: document.getElementById("btnForgotPassword"),
+      forgotSection: document.getElementById("forgotSection"),
+      forgotForm: document.getElementById("forgotForm"),
+      forgotEmail: document.getElementById("forgotEmail"),
+      btnSendLink: document.getElementById("btnSendLink"),
+      btnBackLogin: document.getElementById("btnBackLogin"),
+      passwordSection: document.getElementById("passwordSection"),
+      passwordBoxTitle: document.getElementById("passwordBoxTitle"),
+      passwordForm: document.getElementById("passwordForm"),
+      newPassword: document.getElementById("newPassword"),
+      confirmPassword: document.getElementById("confirmPassword"),
+      btnSavePassword: document.getElementById("btnSavePassword"),
+      statusBox: document.getElementById("statusBox"),
+    };
+
+    let isRecoveryMode = false;
+
+    function showMessage(text, type = "info") {
+      ui.statusBox.textContent = text;
+      ui.statusBox.className = `status show ${type}`;
+    }
+
+    function hideMessage() {
+      ui.statusBox.textContent = "";
+      ui.statusBox.className = "status";
+    }
+
+    function setButtonLoading(button, isLoading, textLoading) {
+      if (!button.dataset.defaultText) {
+        button.dataset.defaultText = button.textContent;
+      }
+      button.disabled = isLoading;
+      button.textContent = isLoading ? textLoading : button.dataset.defaultText;
+    }
+
+    function updateScreen(session) {
+      const loggedIn = Boolean(session?.user);
+
+      if (isRecoveryMode) {
+        ui.pageTitle.textContent = "Redefinir Senha";
+        ui.pageSubtitle.textContent = "Crie uma nova senha para voltar a acessar sua conta.";
+        ui.userHeader.classList.add("hidden");
+        ui.loginSection.classList.add("hidden");
+        ui.forgotSection.classList.add("hidden");
+        ui.passwordSection.classList.remove("hidden");
+        ui.passwordBoxTitle.textContent = "Criar nova senha";
+        return;
+      }
+
+      if (loggedIn) {
+        ui.pageTitle.textContent = "Minha Conta";
+        ui.pageSubtitle.textContent = "Você está conectado. Gerencie sua senha abaixo.";
+        ui.userHeader.classList.remove("hidden");
+        ui.userEmailText.textContent = session.user.email || "Usuário conectado";
+        ui.loginSection.classList.add("hidden");
+        ui.forgotSection.classList.add("hidden");
+        ui.passwordSection.classList.remove("hidden");
+        ui.passwordBoxTitle.textContent = "Alterar senha atual";
+      } else {
+        ui.pageTitle.textContent = "Acesso do Professor";
+        ui.pageSubtitle.textContent = "Entre na sua conta ou clique em Esqueci minha senha.";
+        ui.userHeader.classList.add("hidden");
+        ui.loginSection.classList.remove("hidden");
+        ui.forgotSection.classList.add("hidden");
+        ui.passwordSection.classList.add("hidden");
+      }
+    }
+
+    ui.btnForgotPassword.addEventListener("click", () => {
+      hideMessage();
+      if (ui.loginEmail.value.trim()) {
+        ui.forgotEmail.value = ui.loginEmail.value.trim();
+      }
+      ui.loginSection.classList.add("hidden");
+      ui.forgotSection.classList.remove("hidden");
+      ui.forgotEmail.focus();
+    });
+
+    ui.btnBackLogin.addEventListener("click", () => {
+      hideMessage();
+      ui.forgotSection.classList.add("hidden");
+      ui.loginSection.classList.remove("hidden");
+    });
+
+    ui.loginForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      hideMessage();
+      setButtonLoading(ui.btnLogin, true, "Entrando...");
+
+      try {
+        const { data, error } = await supabase.auth.signInWithPassword({
+          email: ui.loginEmail.value.trim(),
+          password: ui.loginPassword.value,
+        });
+
+        if (error) {
+          showMessage(`Erro ao entrar: ${error.message}`, "error");
+          return;
+        }
+
+        ui.loginPassword.value = "";
+        updateScreen(data.session);
+        showMessage("Login realizado com sucesso!", "success");
+      } catch (err) {
+        showMessage(`Erro inesperado: ${err.message || err}`, "error");
+      } finally {
+        setButtonLoading(ui.btnLogin, false);
+      }
+    });
+
+    ui.forgotForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      hideMessage();
+      setButtonLoading(ui.btnSendLink, true, "Enviando...");
+
+      try {
+        const { error } = await supabase.auth.resetPasswordForEmail(
+          ui.forgotEmail.value.trim(),
+          { redirectTo: REDIRECT_URL }
+        );
+
+        if (error) {
+          showMessage(`Não foi possível enviar o e-mail: ${error.message}`, "error");
+          return;
+        }
+
+        showMessage(
+          "Link enviado! Abra seu e-mail (confira também o spam) e clique no link para criar uma nova senha.",
+          "success"
+        );
+      } catch (err) {
+        showMessage(`Erro ao enviar: ${err.message || err}`, "error");
+      } finally {
+        setButtonLoading(ui.btnSendLink, false);
+      }
+    });
+
+    ui.passwordForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      hideMessage();
+
+      const novaSenha = ui.newPassword.value;
+      const confirmarSenha = ui.confirmPassword.value;
+
+      if (novaSenha.length < 6) {
+        showMessage("A senha precisa ter pelo menos 6 caracteres.", "error");
+        return;
+      }
+
+      if (novaSenha !== confirmarSenha) {
+        showMessage("As duas senhas digitadas não são iguais.", "error");
+        return;
+      }
+
+      setButtonLoading(ui.btnSavePassword, true, "Salvando...");
+
+      try {
+        const { error } = await supabase.auth.updateUser({ password: novaSenha });
+
+        if (error) {
+          showMessage(`Erro ao atualizar senha: ${error.message}`, "error");
+          return;
+        }
+
+        ui.newPassword.value = "";
+        ui.confirmPassword.value = "";
+        isRecoveryMode = false;
+
+        if (window.location.hash || window.location.search.includes("code=")) {
+          window.history.replaceState({}, document.title, window.location.pathname);
+        }
+
+        const { data } = await supabase.auth.getSession();
+        updateScreen(data.session);
+        showMessage("Senha salva com sucesso!", "success");
+      } catch (err) {
+        showMessage(`Erro ao salvar senha: ${err.message || err}`, "error");
+      } finally {
+        setButtonLoading(ui.btnSavePassword, false);
+      }
+    });
+
+    ui.btnLogout.addEventListener("click", async () => {
+      hideMessage();
+      setButtonLoading(ui.btnLogout, true, "Saindo...");
+      try {
+        isRecoveryMode = false;
+        await supabase.auth.signOut();
+        updateScreen(null);
+        showMessage("Você saiu da conta.", "info");
+      } finally {
+        setButtonLoading(ui.btnLogout, false);
+      }
+    });
+
+    supabase.auth.onAuthStateChange((event, session) => {
+      if (event === "PASSWORD_RECOVERY") {
+        isRecoveryMode = true;
+        updateScreen(session);
+        showMessage("Link validado! Digite e confirme sua nova senha abaixo.", "info");
+        return;
+      }
+
+      if (event === "SIGNED_OUT") {
+        isRecoveryMode = false;
+        updateScreen(null);
+        return;
+      }
+
+      updateScreen(session);
+    });
+
+    const { data: initial } = await supabase.auth.getSession();
+    updateScreen(initial?.session || null);
+  </script>
+</body>
+</html>
