@@ -3,13 +3,163 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <meta name="theme-color" content="#0b1120">
+  <meta name="theme-color" content="#06132b">
   <title>CSI Torneio Morfológico &amp; Matemático - Plataforma EdTech</title>
   <link rel="manifest" href="manifest.json">
   <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
   <link rel="apple-touch-icon" href="icons/icon-192.png">
   <link rel="stylesheet" href="style.css">
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <style>
+    body {
+      background-color: #050f24;
+      background-image:
+        radial-gradient(circle at 15% 18%, rgba(56, 189, 248, 0.24) 0%, transparent 42%),
+        radial-gradient(circle at 85% 15%, rgba(37, 99, 235, 0.28) 0%, transparent 45%),
+        radial-gradient(circle at 50% 88%, rgba(14, 165, 233, 0.18) 0%, transparent 50%),
+        linear-gradient(160deg, #06132b 0%, #091d42 52%, #051026 100%);
+      background-attachment: fixed;
+      color: #f8fafc;
+      position: relative;
+      overflow-x: hidden;
+    }
+
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 0;
+      background-image:
+        radial-gradient(rgba(125, 211, 252, 0.22) 1.25px, transparent 1.25px),
+        radial-gradient(rgba(250, 204, 21, 0.14) 1px, transparent 1px);
+      background-size: 36px 36px, 72px 72px;
+      background-position: 0 0, 18px 24px;
+      opacity: 0.7;
+    }
+
+    header,
+    .container,
+    .modal-backdrop,
+    footer.site-footer,
+    .confetti-layer {
+      position: relative;
+      z-index: 1;
+    }
+
+    .role-gateway {
+      max-width: 820px;
+      margin: 18px auto 28px auto;
+      text-align: center;
+      background: linear-gradient(145deg, rgba(13, 37, 79, 0.86), rgba(7, 22, 51, 0.92));
+      border: 1.5px solid rgba(56, 189, 248, 0.35);
+      border-radius: 24px;
+      padding: 32px 24px;
+      box-shadow:
+        0 24px 60px rgba(2, 10, 28, 0.7),
+        0 0 40px rgba(56, 189, 248, 0.12),
+        inset 0 1px 0 rgba(186, 230, 253, 0.22);
+    }
+
+    .hero-ornament-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 14px;
+      border-radius: 999px;
+      background: rgba(14, 165, 233, 0.18);
+      border: 1px solid rgba(125, 211, 252, 0.4);
+      color: #bae6fd;
+      font-size: 0.8rem;
+      font-weight: 800;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      margin-bottom: 12px;
+    }
+
+    .role-gateway-cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(265px, 1fr));
+      gap: 20px;
+      margin-top: 24px;
+    }
+
+    .role-choice-card {
+      background: linear-gradient(160deg, rgba(15, 43, 92, 0.88), rgba(8, 24, 56, 0.95));
+      border: 1.5px solid rgba(125, 211, 252, 0.28);
+      border-radius: 18px;
+      padding: 28px 22px;
+      cursor: pointer;
+      transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: space-between;
+      text-align: center;
+      color: inherit;
+      font-family: inherit;
+      width: 100%;
+      box-shadow: 0 14px 28px rgba(2, 10, 28, 0.45);
+    }
+
+    .role-choice-card:hover {
+      transform: translateY(-4px);
+    }
+
+    .role-choice-student {
+      border-color: rgba(56, 189, 248, 0.55);
+    }
+
+    .role-choice-student:hover {
+      border-color: #38bdf8;
+      background: linear-gradient(160deg, rgba(18, 56, 118, 0.94), rgba(9, 30, 68, 0.98));
+      box-shadow: 0 16px 36px rgba(56, 189, 248, 0.24);
+    }
+
+    .role-choice-teacher {
+      border-color: rgba(250, 204, 21, 0.55);
+    }
+
+    .role-choice-teacher:hover {
+      border-color: #facc15;
+      background: linear-gradient(160deg, rgba(22, 51, 108, 0.94), rgba(10, 28, 64, 0.98));
+      box-shadow: 0 16px 36px rgba(250, 204, 21, 0.2);
+    }
+
+    .role-choice-icon {
+      font-size: 3.1rem;
+      margin-bottom: 12px;
+      line-height: 1;
+      filter: drop-shadow(0 6px 14px rgba(56, 189, 248, 0.28));
+    }
+
+    .role-choice-title {
+      font-size: 1.38rem;
+      font-weight: 900;
+      margin-bottom: 8px;
+      color: #f8fafc;
+    }
+
+    .role-choice-desc {
+      font-size: 0.92rem;
+      color: #cbd5e1;
+      line-height: 1.5;
+      margin-bottom: 18px;
+    }
+
+    .single-portal-wrap {
+      max-width: 560px;
+      margin: 0 auto 24px auto;
+    }
+
+    .portal-topbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+      gap: 10px;
+    }
+  </style>
 </head>
 <body>
 
@@ -21,7 +171,7 @@
 <div class="confetti-layer hidden" id="confettiLayer"></div>
 
 <header>
-  <div class="brand">
+  <div class="brand" style="cursor:pointer;" onclick="openRoleGateway()">
     🏆 CSI TORNEIO MORFOLÓGICO &amp; MATEMÁTICO <span class="brand-pill" id="modeBadge">EDTECH PRO</span>
   </div>
   <div class="header-actions">
@@ -35,12 +185,44 @@
 
   <!-- TELA INICIAL -->
   <div id="viewLobby">
-    <div class="hero-intro">
-      <h1>Plataforma Gamificada: Português + Matemática</h1>
-      <p>Acesso exclusivo para <strong>Professores Assinantes</strong> criarem salas ao vivo e <strong>Acesso Rápido Blindado</strong> para alunos sem duplicação de perfis.</p>
+
+    <!-- 1. CAPA DE ESCOLHA DE PERFIL (SOU ALUNO / SOU PROFESSOR) -->
+    <div id="roleGatewayBox" class="role-gateway">
+      <div class="hero-ornament-badge">✦ Arena de Letras &amp; Cálculo ✦</div>
+      <div class="hero-intro" style="margin-bottom: 10px;">
+        <div style="font-size: 3rem; margin-bottom: 8px; filter: drop-shadow(0 6px 18px rgba(56, 189, 248, 0.35));">🏆🔍✨</div>
+        <h1>CSI Torneio Morfológico &amp; Matemático</h1>
+        <p>Plataforma gamificada de investigação textual e desafios matemáticos ao vivo. Escolha como você vai entrar hoje:</p>
+      </div>
+
+      <div class="role-gateway-cards">
+        <button type="button" class="role-choice-card role-choice-student" onclick="selectLobbyRole('student')">
+          <div>
+            <div class="role-choice-icon">🎓</div>
+            <div class="role-choice-title">Sou Aluno</div>
+            <div class="role-choice-desc">Tenho o código de 4 letras da sala passado pelo professor e quero entrar na partida.</div>
+          </div>
+          <span class="btn-primary" style="width:100%; display:inline-block; box-sizing:border-box;">🚀 Entrar com Código</span>
+        </button>
+
+        <button type="button" class="role-choice-card role-choice-teacher" onclick="selectLobbyRole('teacher')">
+          <div>
+            <div class="role-choice-icon">🧑‍🏫</div>
+            <div class="role-choice-title">Sou Professor</div>
+            <div class="role-choice-desc">Quero fazer login na minha conta, abrir uma nova sala do torneio e acompanhar o placar da turma.</div>
+          </div>
+          <span class="btn-gold" style="width:100%; display:inline-block; box-sizing:border-box;">🔐 Acessar Painel Docente</span>
+        </button>
+      </div>
     </div>
 
-    <div class="lobby-grid">
+    <!-- 2. PORTAL DO ALUNO (ABRE AO CLICAR EM "SOU ALUNO") -->
+    <div id="studentPortalWrapper" class="single-portal-wrap hidden">
+      <div class="portal-topbar">
+        <button type="button" class="btn-ghost btn-sm" onclick="openRoleGateway()">← Voltar à tela inicial</button>
+        <span style="font-size:0.82rem; color:var(--accent); font-weight:800;">PERFIL: ALUNO</span>
+      </div>
+
       <div class="card card-student">
         <h2>🎓 Portal do Aluno (Sala ao Vivo)</h2>
         <p>Digite o código de 4 letras fornecido pelo professor e seu nome único. Se atualizar a página, entre novamente com os mesmos dados para retomar sua pontuação.</p>
@@ -61,6 +243,14 @@
         <button type="button" class="btn-purple hidden" id="btnOpenBotTest" style="width:100%; margin-top:10px;" onclick="startInstantBotMatch()">🤖 Modo Teste (Jogar com 4 Bots)</button>
 
         <div class="legend-bar" id="lobbyLegendBar"></div>
+      </div>
+    </div>
+
+    <!-- 3. ÁREA DO PROFESSOR (ABRE AO CLICAR EM "SOU PROFESSOR") -->
+    <div id="teacherPortalWrapper" class="single-portal-wrap hidden">
+      <div class="portal-topbar">
+        <button type="button" class="btn-ghost btn-sm" onclick="openRoleGateway()">← Voltar à tela inicial</button>
+        <span style="font-size:0.82rem; color:var(--gold); font-weight:800;">PERFIL: PROFESSOR</span>
       </div>
 
       <div class="card card-teacher">
@@ -446,5 +636,51 @@
 </footer>
 
 <script src="app.js"></script>
+<script>
+  function openRoleGateway() {
+    const gateway = document.getElementById("roleGatewayBox");
+    const studentWrap = document.getElementById("studentPortalWrapper");
+    const teacherWrap = document.getElementById("teacherPortalWrapper");
+    if (gateway) gateway.classList.remove("hidden");
+    if (studentWrap) studentWrap.classList.add("hidden");
+    if (teacherWrap) teacherWrap.classList.add("hidden");
+  }
+
+  function selectLobbyRole(role) {
+    const gateway = document.getElementById("roleGatewayBox");
+    const studentWrap = document.getElementById("studentPortalWrapper");
+    const teacherWrap = document.getElementById("teacherPortalWrapper");
+    if (gateway) gateway.classList.add("hidden");
+
+    if (role === "student") {
+      if (studentWrap) studentWrap.classList.remove("hidden");
+      if (teacherWrap) teacherWrap.classList.add("hidden");
+      const pinInput = document.getElementById("inputPin");
+      if (pinInput) pinInput.focus();
+    } else if (role === "teacher") {
+      if (teacherWrap) teacherWrap.classList.remove("hidden");
+      if (studentWrap) studentWrap.classList.add("hidden");
+      const emailInput = document.getElementById("authEmail");
+      if (emailInput && !emailInput.closest("#teacherAuthBox")?.classList.contains("hidden")) {
+        emailInput.focus();
+      }
+    }
+  }
+
+  document.addEventListener("DOMContentLoaded", () => {
+    const loggedBox = document.getElementById("teacherLoggedBox");
+    if (!loggedBox) return;
+
+    const syncLoggedState = () => {
+      if (!loggedBox.classList.contains("hidden")) {
+        selectLobbyRole("teacher");
+      }
+    };
+
+    syncLoggedState();
+    const observer = new MutationObserver(syncLoggedState);
+    observer.observe(loggedBox, { attributes: true, attributeFilter: ["class"] });
+  });
+</script>
 </body>
 </html>
