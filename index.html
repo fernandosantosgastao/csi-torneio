@@ -87,6 +87,7 @@
           </div>
 
           <button type="button" class="btn-gold" id="btnAuthSubmit" style="width:100%;" onclick="submitTeacherAuth()">🔐 Entrar como Professor</button>
+          <a href="conta.html" class="btn-ghost btn-sm" style="display:block; width:100%; margin-top:8px; text-align:center; text-decoration:none; box-sizing:border-box;">🔑 Esqueci minha senha</a>
         </div>
 
         <div id="teacherLoggedBox" class="hidden">
@@ -95,7 +96,10 @@
               <strong id="teacherProfileName" style="color:#fff;">Professor</strong>
               <div id="teacherSubStatusText" style="font-size:0.78rem; color:#34d399;">Assinatura Ativa</div>
             </div>
-            <button type="button" class="btn-ghost btn-sm" onclick="logoutTeacher()">Sair da Conta</button>
+            <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+              <a href="conta.html" class="btn-ghost btn-sm" style="text-decoration:none;">👤 Minha Conta / Senha</a>
+              <button type="button" class="btn-ghost btn-sm" onclick="logoutTeacher()">Sair da Conta</button>
+            </div>
           </div>
 
           <div id="adminBotControlBox" class="admin-control-box hidden">
