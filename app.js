@@ -590,6 +590,150 @@ let activeRealtimeChannel = null;
 let roomChannelReady = false;
 let teacherSaveDebounceTimer = null;
 
+// --- Histórico de salas, fechamento/reabertura e bônus de sequência ---
+let roomHistoryEntries = [];
+let playerStreak = 0;
+
+function loadRoomHistoryLocal() {
+  try {
+    const raw = localStorage.getItem("csi_room_history_v2");
+    const parsed = raw ? JSON.parse(raw) : [];
+    roomHistoryEntries = Array.isArray(parsed) ? parsed : [];
+  } catch (e) {
+    roomHistoryEntries = [];
+  }
+}
+
+function saveRoomHistoryLocal() {
+  try {
+    localStorage.setItem("csi_room_history_v2", JSON.stringify(roomHistoryEntries.slice(0, 40)));
+  } catch (e) {}
+}
+
+async function logRoomHistoryEvent(pin, label, eventType, isOpen) {
+  const cleanPin = String(pin || "").trim().toUpperCase();
+  if (!cleanPin) return;
+  const cleanLabel = String(label || `Sala ${cleanPin}`).trim();
+  const teacherEmail = String(teacherProfile?.email || teacherAuthSession?.user?.email || "").trim().toLowerCase() || null;
+
+  roomHistoryEntries = [
+    {
+      pin: cleanPin,
+      label: cleanLabel,
+      teacherEmail,
+      eventType,
+      isOpen: !!isOpen,
+      at: new Date().toISOString()
+    },
+    ...roomHistoryEntries.filter(r => r.pin !== cleanPin)
+  ];
+  saveRoomHistoryLocal();
+  renderRoomHistoryPanel();
+
+  try {
+    await fetch(`${SUPABASE_URL}/rest/v1/room_history_logs`, {
+      method: "POST",
+      headers: {
+        "apikey": SUPABASE_KEY,
+        "Content-Type": "application/json",
+        "Prefer": "return=minimal"
+      },
+      body: JSON.stringify({
+        room_pin: cleanPin,
+        room_label: cleanLabel,
+        teacher_email: teacherEmail,
+        event_type: eventType,
+        is_open: !!isOpen
+      })
+    });
+  } catch (e) {}
+}
+
+function renderRoomHistoryPanel() {
+  const listEl = document.getElementById("roomHistoryList");
+  if (!listEl) return;
+
+  if (!roomHistoryEntries || roomHistoryEntries.length === 0) {
+    listEl.innerHTML = `<div style="font-size:0.8rem; color:var(--text-muted);">Nenhuma sala registrada no histórico ainda.</div>`;
+    return;
+  }
+
+  listEl.innerHTML = roomHistoryEntries.map(item => {
+    const badge = item.isOpen
+      ? `<span style="color:#34d399; font-weight:800;">● Aberta</span>`
+      : `<span style="color:#fda4af; font-weight:800;">● Encerrada</span>`;
+
+    const actionBtn = item.isOpen
+      ? `<button type="button" class="btn-ghost btn-sm" onclick="closeRoomByPin('${item.pin}', '${item.label.replace(/'/g, "\\'")}')">🔒 Fechar</button>`
+      : `<button type="button" class="btn-success btn-sm" onclick="reopenRoomByPin('${item.pin}', '${item.label.replace(/'/g, "\\'")}')">🔓 Reabrir Sala</button>`;
+
+    return `
+      <div class="saved-room-row">
+        <div>
+          <strong style="color:var(--gold); letter-spacing:2px;">${item.pin}</strong>
+          <span style="font-weight:700; margin-left:6px;">${item.label}</span>
+          <div style="font-size:0.75rem; margin-top:2px;">${badge}</div>
+        </div>
+        <div>${actionBtn}</div>
+      </div>
+    `;
+  }).join("");
+}
+
+async function closeRoomByPin(targetPin, targetLabel) {
+  const cleanPin = String(targetPin || roomPin || "").trim().toUpperCase();
+  if (!cleanPin) return;
+
+  const lookup = await dbGetRoom(cleanPin, false);
+  const currentState = (lookup && lookup.exists && lookup.state)
+    ? lookup.state
+    : (cleanPin === roomPin ? gameState : { players: {} });
+
+  const closedState = {
+    ...currentState,
+    closed: true,
+    started: false,
+    v: (currentState.v || 1) + 1
+  };
+
+  if (cleanPin === roomPin) {
+    gameState = closedState;
+    renderTeacherDashboard();
+  }
+
+  await dbSaveRoom(cleanPin, closedState, !teacherAuthSession);
+  broadcastRoomStateNow();
+  await logRoomHistoryEvent(cleanPin, targetLabel || closedState.roomLabel || `Sala ${cleanPin}`, "CLOSED", false);
+  await loadRecentTeacherRooms();
+  showToast(`🔒 Sala ${cleanPin} encerrada! Todos os alunos foram removidos e novas entradas estão bloqueadas.`);
+}
+
+async function reopenRoomByPin(targetPin, targetLabel) {
+  const cleanPin = String(targetPin || "").trim().toUpperCase();
+  if (!cleanPin) return;
+
+  const lookup = await dbGetRoom(cleanPin, false);
+  if (!lookup || !lookup.exists || !lookup.state) {
+    showToast(`Não foi possível localizar os dados da sala ${cleanPin}.`);
+    return;
+  }
+
+  const reopenedState = {
+    ...lookup.state,
+    closed: false,
+    v: (lookup.state.v || 1) + 1
+  };
+
+  await dbSaveRoom(cleanPin, reopenedState, !teacherAuthSession);
+  await logRoomHistoryEvent(cleanPin, targetLabel || reopenedState.roomLabel || `Sala ${cleanPin}`, "REOPENED", true);
+  await loadRecentTeacherRooms();
+
+  if (teacherAuthSession && isSubscriptionValid(teacherProfile)) {
+    await createTeacherRoom(cleanPin, targetLabel || reopenedState.roomLabel || `Sala ${cleanPin}`);
+  }
+  showToast(`🔓 Sala ${cleanPin} reaberta! Os alunos já podem entrar novamente.`);
+}
+
 function getRealtimeClient() {
   if (sbRealtimeClient) return sbRealtimeClient;
   if (window.supabase && typeof window.supabase.createClient === "function") {
@@ -672,7 +816,7 @@ function scheduleTeacherRoomSave() {
     teacherSaveDebounceTimer = null;
     if (!roomPin || !gameState || !gameState.grid) return;
     await dbSaveRoom(roomPin, gameState, false);
-  }, 3500);
+  }, 1500);
 }
 
 async function flushTeacherRoomSaveNow() {
@@ -682,6 +826,65 @@ async function flushTeacherRoomSaveNow() {
   }
   if (!roomPin || !gameState || !gameState.grid) return { ok: false, error: "Sala não inicializada" };
   return await dbSaveRoom(roomPin, gameState, false);
+}
+
+// Persiste diretamente no Supabase a ação do aluno para que funcione mesmo sem o portal do professor aberto
+async function persistStudentActionDirectlyToRoom(msg) {
+  if (!roomPin || !msg || !msg.name) return;
+  const lookup = await dbGetRoom(roomPin, false);
+  if (!lookup || !lookup.ok || !lookup.exists || !lookup.state) return;
+
+  const latest = lookup.state;
+  if (latest.closed) {
+    clearSessionState();
+    resetToLobby();
+    showToast("🔒 Esta sala foi encerrada pelo professor.");
+    return;
+  }
+
+  if (!latest.players || typeof latest.players !== "object") latest.players = {};
+  if (!latest.claimedWords || typeof latest.claimedWords !== "object") latest.claimedWords = {};
+
+  const canonicalId = makeCanonicalPlayerId(msg.name, msg.cls);
+  if (!latest.players[canonicalId]) {
+    latest.players[canonicalId] = {
+      name: msg.name,
+      cls: msg.cls || "Geral",
+      score: 0,
+      stageScore: 0,
+      words: [],
+      mathSolved: 0,
+      errors: 0,
+      status: "active"
+    };
+  }
+  const p = latest.players[canonicalId];
+
+  if (msg.type === "CLAIM_WORD" && latest.started && !latest.finished) {
+    const eventStage = msg.stage || latest.stage;
+    if (eventStage === latest.stage && p.status === "active" && !latest.claimedWords[msg.word]) {
+      latest.claimedWords[msg.word] = { by: p.name, points: msg.points };
+      p.score = (p.score || 0) + msg.points;
+      p.stageScore = (p.stageScore || 0) + msg.points;
+      if (!Array.isArray(p.words)) p.words = [];
+      if (!p.words.includes(msg.word)) p.words.push(msg.word);
+    }
+  } else if (msg.type === "MATH_SOLVED") {
+    p.score = (p.score || 0) + msg.points;
+    p.stageScore = (p.stageScore || 0) + msg.points;
+    p.mathSolved = (p.mathSolved || 0) + 1;
+  } else if (msg.type === "REGISTER_ERROR") {
+    p.errors = (p.errors || 0) + 1;
+  } else if (msg.type === "RECOMP_ELIMINATED" || msg.type === "REPECHAGE_FAIL") {
+    p.status = "eliminated";
+  } else if (msg.type === "REPECHAGE_PASS") {
+    p.status = "active";
+    p.score = (p.score || 0) + 100;
+  }
+
+  latest.v = (latest.v || 1) + 1;
+  await dbSaveRoom(roomPin, latest, true);
+  reconcileRemoteStudentRoomState(latest);
 }
 
 function launchConfettiBurst(count = 65) {
@@ -1077,7 +1280,7 @@ async function loadRecentTeacherRooms() {
         const stateEmailMatch = !!(myEmail && r.state.ownerEmail && String(r.state.ownerEmail).toLowerCase() === myEmail);
         return ownerMatch || stateEmailMatch;
       })
-      .slice(0, 6);
+      .slice(0, 8);
 
     if (validRooms.length === 0) {
       listEl.innerHTML = `<div style="font-size:0.82rem; color:var(--text-muted);">Nenhuma sala criada por você encontrada.</div>`;
@@ -1088,15 +1291,28 @@ async function loadRecentTeacherRooms() {
       const st = r.state;
       const pCount = Object.keys(st.players || {}).length;
       const label = st.roomLabel || "Sala";
-      const statusTxt = st.finished ? "Finalizada" : (st.started ? `Fase ${st.stage || 1}` : "Espera");
+      const isClosed = !!st.closed;
+      const statusTxt = isClosed
+        ? "🔒 Encerrada"
+        : (st.finished ? "Finalizada" : (st.started ? `Fase ${st.stage || 1}` : "Espera"));
+
+      const actionButtons = isClosed
+        ? `<button type="button" class="btn-success btn-sm" onclick="reopenRoomByPin('${r.pin}', '${label.replace(/'/g, "\\'")}')">🔓 Reabrir</button>`
+        : `
+          <div style="display:flex; gap:6px;">
+            <button type="button" class="btn-primary btn-sm" onclick="reopenExistingRoom('${r.pin}', '${label.replace(/'/g, "\\'")}')">Abrir</button>
+            <button type="button" class="btn-ghost btn-sm" onclick="closeRoomByPin('${r.pin}', '${label.replace(/'/g, "\\'")}')">🔒 Fechar</button>
+          </div>
+        `;
+
       return `
         <div class="saved-room-row">
           <div>
             <strong style="color:var(--gold); letter-spacing:2px;">${r.pin}</strong>
             <span style="font-weight:700; margin-left:6px;">${label}</span>
-            <div style="font-size:0.76rem; color:var(--text-muted);">${statusTxt} • ${pCount} aluno(s)</div>
+            <div style="font-size:0.76rem; color:${isClosed ? '#fda4af' : 'var(--text-muted)'};">${statusTxt} • ${pCount} aluno(s)</div>
           </div>
-          <button type="button" class="btn-primary btn-sm" onclick="reopenExistingRoom('${r.pin}', '${label.replace(/'/g, "\\'")}')">🔄 Reabrir</button>
+          ${actionButtons}
         </div>
       `;
     }).join("");
@@ -1106,7 +1322,7 @@ async function loadRecentTeacherRooms() {
 }
 
 async function reopenExistingRoom(pin, label) {
-  await createTeacherRoom(pin, label);
+  await reopenRoomByPin(pin, label);
 }
 
 function isSubscriptionValid(profile) {
@@ -1195,6 +1411,7 @@ let lastBuiltGridKey = "";
 let gameState = {
   v: 1,
   started: false,
+  closed: false,
   stage: 1,
   storyIdx: 0,
   finished: false,
@@ -1294,11 +1511,17 @@ function resetToLobby() {
   unsubscribeRoomRealtime();
   isBotModeActive = false;
   isRecompLocked = false;
+  playerStreak = 0;
+  document.body.classList.remove("pseudo-fullscreen");
+  document.body.classList.remove("focus-wordsearch-mode");
   document.getElementById("viewTeacher").classList.add("hidden");
   document.getElementById("viewStudent").classList.add("hidden");
   document.getElementById("viewBotTest").classList.add("hidden");
   document.getElementById("btnExitRoom").classList.add("hidden");
   document.getElementById("viewLobby").classList.remove("hidden");
+  if (typeof window.openRoleGateway === "function") {
+    window.openRoleGateway();
+  }
   setNetStatus("online", "Nuvem Pronta");
 }
 
@@ -1306,9 +1529,15 @@ function toggleFullscreen() {
   const docEl = document.documentElement;
   const isPseudoFs = document.body.classList.contains("pseudo-fullscreen");
   const isNativeFs = document.fullscreenElement || document.webkitFullscreenElement;
+  const playingWordsearch =
+    !document.getElementById("viewStudent").classList.contains("hidden") && gameState.started ||
+    !document.getElementById("viewBotTest").classList.contains("hidden");
 
   if (!isPseudoFs) {
     document.body.classList.add("pseudo-fullscreen");
+    if (playingWordsearch) {
+      document.body.classList.add("focus-wordsearch-mode");
+    }
     if (!isNativeFs) {
       if (docEl.requestFullscreen) {
         docEl.requestFullscreen().catch(() => {});
@@ -1316,9 +1545,10 @@ function toggleFullscreen() {
         try { docEl.webkitRequestFullscreen(); } catch (e) {}
       }
     }
-    showToast("Tela cheia ativada");
+    showToast(playingWordsearch ? "Modo foco do caça-palavras ativado" : "Tela cheia ativada");
   } else {
     document.body.classList.remove("pseudo-fullscreen");
+    document.body.classList.remove("focus-wordsearch-mode");
     if (isNativeFs) {
       if (document.exitFullscreen) {
         document.exitFullscreen().catch(() => {});
@@ -1486,6 +1716,7 @@ async function dbSaveRoom(pin, stateObj, useAnonKeyOnly = false) {
 
 async function dbPushEvent(pin, payloadObj) {
   broadcastStudentAction(payloadObj);
+  await persistStudentActionDirectlyToRoom(payloadObj);
   return { ok: true };
 }
 
@@ -1515,6 +1746,7 @@ function startInstantBotMatch() {
 
   isBotModeActive = true;
   isRecompLocked = false;
+  playerStreak = 0;
   myName = document.getElementById("inputStudentName").value.trim() || "Diretora";
   const baseBotStory = STORY_BANK[Math.floor(Math.random() * STORY_BANK.length)];
   botStory = randomizeStorySupportSentences(baseBotStory);
@@ -1812,10 +2044,12 @@ async function createTeacherRoom(resumePin = null, resumeLabel = null) {
     if (existing && existing.grid) {
       gameState = {
         ...existing,
+        closed: false,
         ownerEmail: existing.ownerEmail || ownerEmail,
         moderators: Array.isArray(existing.moderators) ? existing.moderators : [...moderatorsList]
       };
       restored = true;
+      await dbSaveRoom(roomPin, gameState, false);
       showToast(`🔄 Painel da sala ${roomPin} restaurado com sucesso!`);
     }
   }
@@ -1827,6 +2061,7 @@ async function createTeacherRoom(resumePin = null, resumeLabel = null) {
     gameState = {
       v: 1,
       started: false,
+      closed: false,
       stage: 1,
       storyIdx: initialStoryIdx,
       activeStory: story,
@@ -1844,6 +2079,8 @@ async function createTeacherRoom(resumePin = null, resumeLabel = null) {
     const result = await dbSaveRoom(roomPin, gameState);
     if (result.ok) {
       setNetStatus("online", "Sala de Espera (" + roomPin + ")");
+      await logRoomHistoryEvent(roomPin, label, "CREATED", true);
+      await loadRecentTeacherRooms();
       showToast(`Sala ${roomPin} aberta! Aguarde os alunos e aperte "Iniciar Partida Agora".`);
     } else {
       setNetStatus("error", "Erro no Supabase");
@@ -1852,6 +2089,7 @@ async function createTeacherRoom(resumePin = null, resumeLabel = null) {
     }
   } else {
     setNetStatus("online", (gameState.started ? "Torneio Ao Vivo (" : "Sala de Espera (") + roomPin + ")");
+    await logRoomHistoryEvent(roomPin, label, "REOPENED", true);
   }
 
   saveSessionState("teacher", { roomLabel: label });
@@ -1871,11 +2109,11 @@ async function createTeacherRoom(resumePin = null, resumeLabel = null) {
     broadcastRoomStateNow();
     const roomLookup = await dbGetRoom(roomPin, true);
     const latestRoom = roomLookup && roomLookup.exists ? roomLookup.state : null;
-    if (latestRoom && latestRoom.grid && (latestRoom.v || 0) > (gameState.v || 0)) {
+    if (latestRoom && latestRoom.grid && (latestRoom.v || 0) !== (gameState.v || 0)) {
       gameState = latestRoom;
       renderTeacherDashboard();
     }
-  }, 5000);
+  }, 2500);
 }
 
 async function startTournamentMatch() {
@@ -1884,6 +2122,7 @@ async function startTournamentMatch() {
     return;
   }
 
+  gameState.closed = false;
   gameState.started = true;
   gameState.v = (gameState.v || 1) + 1;
   setNetStatus("online", "Torneio Ao Vivo (" + roomPin + ")");
@@ -1974,6 +2213,7 @@ async function restartFullTournament() {
   const { grid, placements } = generateGrid(roomPin + "_reset_" + Date.now(), story.words);
 
   gameState.v = (gameState.v || 1) + 1;
+  gameState.closed = false;
   gameState.started = false;
   gameState.stage = 1;
   gameState.storyIdx = initialStoryIdx;
@@ -2007,7 +2247,11 @@ function renderTeacherDashboard() {
 
   const btnStart = document.getElementById("btnStartTournament");
   const btnNext = document.getElementById("btnForceNextStage");
-  if (!gameState.started) {
+  if (gameState.closed) {
+    btnStart.classList.add("hidden");
+    btnNext.classList.add("hidden");
+    document.getElementById("teacherStageBadge").textContent = `🔒 SALA ENCERRADA • Reabra no histórico para liberar entradas`;
+  } else if (!gameState.started) {
     btnStart.classList.remove("hidden");
     btnNext.classList.add("hidden");
     document.getElementById("teacherStageBadge").textContent = `⏳ Sala de Espera • Clique em "Iniciar Partida Agora"`;
@@ -2112,12 +2356,21 @@ function exportCSV() {
 function reconcileRemoteStudentRoomState(remote) {
   if (!remote) return;
 
+  // Se o professor fechou a sala, expulsa todos os alunos imediatamente para a tela inicial
+  if (remote.closed) {
+    clearSessionState();
+    resetToLobby();
+    showToast("🔒 A sala foi encerrada pelo professor. Todos os participantes foram desconectados.");
+    return;
+  }
+
   const wasStarted = gameState.started;
   const stageChanged = remote.stage !== gameState.stage || remote.storyIdx !== gameState.storyIdx;
 
   if (!remote.started) {
     myLocalWords.clear();
     myLocalScore = 0;
+    playerStreak = 0;
     lastTriggeredGlobalMilestone = 0;
     isMathLocked = false;
     isRecompLocked = false;
@@ -2224,6 +2477,7 @@ async function joinAsStudent(savedSession = null) {
 
   myLocalWords.clear();
   myLocalScore = 0;
+  playerStreak = 0;
   lastTriggeredGlobalMilestone = savedSession ? (savedSession.lastTriggeredGlobalMilestone || 0) : 0;
   solvedMathCount = savedSession ? (savedSession.solvedMathCount || 0) : 0;
   isMathLocked = false;
@@ -2244,6 +2498,12 @@ async function joinAsStudent(savedSession = null) {
 
   const remoteInitial = roomLookup.exists ? roomLookup.state : null;
   if (remoteInitial && remoteInitial.grid) {
+    if (remoteInitial.closed) {
+      clearSessionState();
+      showToast(`🔒 A sala ${roomPin} foi encerrada pelo professor e não aceita novas entradas no momento.`);
+      return;
+    }
+
     gameState = remoteInitial;
 
     const existingMe = gameState.players && gameState.players[myPlayerId];
@@ -2293,8 +2553,14 @@ async function joinAsStudent(savedSession = null) {
     }
   }
 
-  const sendJoinOnce = () => {
+  const sendJoinOnce = async () => {
     broadcastStudentAction({
+      type: "JOIN",
+      playerId: myPlayerId,
+      name: myName,
+      cls: myClass
+    });
+    await persistStudentActionDirectlyToRoom({
       type: "JOIN",
       playerId: myPlayerId,
       name: myName,
@@ -2302,19 +2568,19 @@ async function joinAsStudent(savedSession = null) {
     });
     const hintEl = document.getElementById("studentSyncHint");
     if (hintEl) {
-      hintEl.textContent = "✅ Conectado à sala ao vivo! Aguardando o professor iniciar...";
+      hintEl.textContent = "✅ Conectado à sala ao vivo! Funciona mesmo sem o portal do professor aberto.";
     }
   };
 
-  sendJoinOnce();
+  await sendJoinOnce();
 
   if (joinRetryTimer) clearInterval(joinRetryTimer);
-  joinRetryTimer = setInterval(() => {
+  joinRetryTimer = setInterval(async () => {
     if (gameState.players && gameState.players[myPlayerId]) {
       clearInterval(joinRetryTimer);
       return;
     }
-    sendJoinOnce();
+    await sendJoinOnce();
   }, 4000);
 
   subscribeRoomRealtime(roomPin, (liveState) => {
@@ -2334,7 +2600,7 @@ async function joinAsStudent(savedSession = null) {
       return;
     }
     reconcileRemoteStudentRoomState(roomCheck.state);
-  }, 5000);
+  }, 2500);
 
   document.addEventListener("visibilitychange", async () => {
     if (!document.hidden && roomPin && !isBotModeActive) {
@@ -2995,6 +3261,7 @@ async function submitClassAnswer(chosenClass) {
       }
     } else {
       quizAttempts++;
+      playerStreak = 0;
       const hintBox = document.getElementById("modalHint");
       hintBox.textContent = `❌ Não é ${chosenClass}. Dica: ${activeQuizWord.hint}`;
       hintBox.classList.remove("hidden");
@@ -3011,7 +3278,9 @@ async function submitClassAnswer(chosenClass) {
   }
 
   if (chosenClass === activeQuizWord.cls) {
-    const earnedPoints = quizAttempts === 0 ? 150 : 75;
+    playerStreak += 1;
+    const streakBonus = playerStreak >= 3 ? 15 : 0;
+    const earnedPoints = (quizAttempts === 0 ? 150 : 75) + streakBonus;
     const wordToClaim = activeQuizWord.word;
     closeQuizModal();
 
@@ -3023,7 +3292,11 @@ async function submitClassAnswer(chosenClass) {
 
     const locked = checkGlobalMathGateTrigger();
     if (!locked) {
-      showToast(`🎯 Correto! +${earnedPoints} pontos!`);
+      showToast(
+        streakBonus > 0
+          ? `🔥 Sequência de ${playerStreak}! +${earnedPoints} pontos (inclui +${streakBonus} bônus)!`
+          : `🎯 Correto! +${earnedPoints} pontos!`
+      );
     }
 
     await Promise.all([
@@ -3040,8 +3313,9 @@ async function submitClassAnswer(chosenClass) {
     ]);
   } else {
     quizAttempts++;
+    playerStreak = 0;
     const hintBox = document.getElementById("modalHint");
-    hintBox.textContent = `❌ Não é ${chosenClass}. Dica: ${activeQuizWord.hint}`;
+    hintBox.textContent = `❌ Não é ${chosenClass}. Explicação: ${activeQuizWord.hint}`;
     hintBox.classList.remove("hidden");
     await dbPushEvent(roomPin, { type: "REGISTER_ERROR", playerId: myPlayerId, name: myName, cls: myClass });
   }
@@ -3057,8 +3331,10 @@ function bindAndroidBackButtonSafety() {
 }
 
 async function bootApp() {
+  loadRoomHistoryLocal();
   renderLegends();
   renderModeratorsUI();
+  renderRoomHistoryPanel();
   bindAndroidBackButtonSafety();
   await Promise.all([syncCloudStoriesBank(), fetchGlobalBotTestFlag(), loadBestPlayersRanking()]);
 
@@ -3080,7 +3356,7 @@ async function bootApp() {
 
     const roomLookup = await dbGetRoom(session.pin, true);
     const remote = roomLookup && roomLookup.exists ? roomLookup.state : null;
-    if (!remote || !remote.grid) {
+    if (!remote || !remote.grid || remote.closed) {
       clearSessionState();
       return;
     }
