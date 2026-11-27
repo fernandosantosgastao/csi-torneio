@@ -260,7 +260,7 @@ async function addModeratorEmail() {
     gameState.moderators = [...moderatorsList];
     gameState.v = (gameState.v || 1) + 1;
     broadcastRoomStateNow();
-    scheduleTeacherRoomSave();
+    await flushTeacherRoomSaveNow();
   }
   showToast(`👮 ${email} adicionado como moderador!`);
 }
@@ -284,7 +284,7 @@ async function removeModeratorEmail(email) {
     gameState.moderators = [...moderatorsList];
     gameState.v = (gameState.v || 1) + 1;
     broadcastRoomStateNow();
-    scheduleTeacherRoomSave();
+    await flushTeacherRoomSaveNow();
   }
   showToast(`Moderador ${email} removido.`);
 }
@@ -298,8 +298,8 @@ async function moderatePlayerAction(playerKey, actionType, bonusAmount = 50) {
   if (!p) return;
 
   if (actionType === "BONUS") {
-    p.score = (p.score || 0) + bonusAmount;
-    p.stageScore = (p.stageScore || 0) + bonusAmount;
+    p.score = Number(p.score || 0) + Number(bonusAmount || 50);
+    p.stageScore = Number(p.stageScore || 0) + Number(bonusAmount || 50);
     showToast(`🎁 +${bonusAmount} pts bônus enviados para ${p.name}!`);
   } else if (actionType === "REINSTATE") {
     p.status = "active";
@@ -312,7 +312,7 @@ async function moderatePlayerAction(playerKey, actionType, bonusAmount = 50) {
   gameState.v = (gameState.v || 1) + 1;
   renderTeacherDashboard();
   broadcastRoomStateNow();
-  scheduleTeacherRoomSave();
+  await flushTeacherRoomSaveNow();
 }
 
 function inferWordClassHeuristic(rawToken) {
@@ -912,22 +912,22 @@ async function persistStudentActionDirectlyToRoom(msg) {
     const eventStage = msg.stage || latest.stage;
     if (eventStage === latest.stage && p.status === "active" && !latest.claimedWords[msg.word]) {
       latest.claimedWords[msg.word] = { by: p.name, points: msg.points };
-      p.score = (p.score || 0) + msg.points;
-      p.stageScore = (p.stageScore || 0) + msg.points;
+      p.score = Number(p.score || 0) + Number(msg.points || 0);
+      p.stageScore = Number(p.stageScore || 0) + Number(msg.points || 0);
       if (!Array.isArray(p.words)) p.words = [];
       if (!p.words.includes(msg.word)) p.words.push(msg.word);
     }
   } else if (msg.type === "MATH_SOLVED") {
-    p.score = (p.score || 0) + msg.points;
-    p.stageScore = (p.stageScore || 0) + msg.points;
-    p.mathSolved = (p.mathSolved || 0) + 1;
+    p.score = Number(p.score || 0) + Number(msg.points || 0);
+    p.stageScore = Number(p.stageScore || 0) + Number(msg.points || 0);
+    p.mathSolved = Number(p.mathSolved || 0) + 1;
   } else if (msg.type === "REGISTER_ERROR") {
-    p.errors = (p.errors || 0) + 1;
+    p.errors = Number(p.errors || 0) + 1;
   } else if (msg.type === "RECOMP_ELIMINATED" || msg.type === "REPECHAGE_FAIL") {
     p.status = "eliminated";
   } else if (msg.type === "REPECHAGE_PASS") {
     p.status = "active";
-    p.score = (p.score || 0) + 80;
+    p.score = Number(p.score || 0) + 80;
   }
 
   const activeStoryObj = (latest.activeStory && Array.isArray(latest.activeStory.words))
@@ -2038,20 +2038,20 @@ function applySingleBroadcastActionToTeacherState(msg) {
     const eventStage = msg.stage || gameState.stage;
     if (eventStage === gameState.stage && p.status === "active" && !gameState.claimedWords[w] && !gameState.finished) {
       gameState.claimedWords[w] = { by: p.name, points: msg.points };
-      p.score += msg.points;
-      p.stageScore = (p.stageScore || 0) + msg.points;
+      p.score = Number(p.score || 0) + Number(msg.points || 0);
+      p.stageScore = Number(p.stageScore || 0) + Number(msg.points || 0);
       if (!p.words.includes(w)) p.words.push(w);
       dirty = true;
     }
   } else if (msg.type === "MATH_SOLVED") {
     const p = ensurePlayerExists(canonicalId, msg.name, msg.cls);
-    p.score += msg.points;
-    p.stageScore = (p.stageScore || 0) + msg.points;
-    p.mathSolved = (p.mathSolved || 0) + 1;
+    p.score = Number(p.score || 0) + Number(msg.points || 0);
+    p.stageScore = Number(p.stageScore || 0) + Number(msg.points || 0);
+    p.mathSolved = Number(p.mathSolved || 0) + 1;
     dirty = true;
   } else if (msg.type === "REGISTER_ERROR") {
     const p = ensurePlayerExists(canonicalId, msg.name, msg.cls);
-    p.errors += 1;
+    p.errors = Number(p.errors || 0) + 1;
     dirty = true;
   } else if (msg.type === "RECOMP_ELIMINATED") {
     const p = ensurePlayerExists(canonicalId, msg.name, msg.cls);
@@ -2061,7 +2061,7 @@ function applySingleBroadcastActionToTeacherState(msg) {
     const p = ensurePlayerExists(canonicalId, msg.name, msg.cls);
     if (p.status === "repechage") {
       p.status = "active";
-      p.score += 80;
+      p.score = Number(p.score || 0) + 80;
       dirty = true;
     }
   } else if (msg.type === "REPECHAGE_FAIL") {
@@ -2184,7 +2184,7 @@ async function createTeacherRoom(resumePin = null, resumeLabel = null) {
     broadcastRoomStateNow();
     const roomLookup = await dbGetRoom(roomPin, true);
     const latestRoom = roomLookup && roomLookup.exists ? roomLookup.state : null;
-    if (latestRoom && latestRoom.grid && (latestRoom.v || 0) !== (gameState.v || 0)) {
+    if (latestRoom && latestRoom.grid && (latestRoom.v || 0) > (gameState.v || 0)) {
       gameState = latestRoom;
       const currentStory = getCurrentStory();
       if (gameState.started && !gameState.finished && Object.keys(gameState.claimedWords || {}).length >= currentStory.words.length) {
@@ -2442,6 +2442,10 @@ function reconcileRemoteStudentRoomState(remote) {
 
   if (!wasStarted && remote.started) {
     gameState = remote;
+    const meStart = gameState.players && gameState.players[myPlayerId];
+    if (meStart && typeof meStart.score === "number") {
+      myLocalScore = Number(meStart.score);
+    }
     applyStoryToStudentUI();
     updateStudentScreenState();
     renderStudentGame(true);
@@ -2468,7 +2472,7 @@ function reconcileRemoteStudentRoomState(remote) {
     gameState = remote;
     const meStage = gameState.players && gameState.players[myPlayerId];
     if (meStage && typeof meStage.score === "number") {
-      myLocalScore = meStage.score;
+      myLocalScore = Number(meStage.score);
     }
     saveSessionState("student");
     applyStoryToStudentUI();
@@ -2499,7 +2503,7 @@ function reconcileRemoteStudentRoomState(remote) {
   const me = gameState.players[myPlayerId];
   if (me) {
     if (typeof me.score === "number") {
-      myLocalScore = Math.max(myLocalScore, me.score);
+      myLocalScore = Number(me.score);
     }
     if (me.status === "eliminated") {
       openEliminatedModal("Você foi eliminado da partida.");
@@ -2723,8 +2727,8 @@ function renderStudentGame(forceRebuildGrid = false) {
 
   const remoteMe = gameState.players[myPlayerId];
   const displayScore = remoteMe && typeof remoteMe.score === "number"
-    ? Math.max(myLocalScore, remoteMe.score)
-    : myLocalScore;
+    ? Number(remoteMe.score)
+    : Number(myLocalScore);
   document.getElementById("studentScore").textContent = displayScore;
 
   const totalClaimedInRoom = Object.keys(gameState.claimedWords).length;
@@ -2872,6 +2876,9 @@ async function submitMathAnswer(chosenOpt) {
 
     solvedMathCount++;
     myLocalScore += bonusPts;
+    if (gameState.players && gameState.players[myPlayerId]) {
+      gameState.players[myPlayerId].score = Number(gameState.players[myPlayerId].score || 0) + bonusPts;
+    }
     saveSessionState("student");
 
     showToast(`🧮 Questão resolvida! +${bonusPts} pts de matemática!`);
@@ -3111,6 +3118,7 @@ async function submitRepechageAnswer(chosenOpt) {
       document.getElementById("repechageModal").classList.add("hidden");
       if (gameState.players[myPlayerId]) {
         gameState.players[myPlayerId].status = "active";
+        gameState.players[myPlayerId].score = Number(gameState.players[myPlayerId].score || 0) + 80;
       }
       myLocalScore += 80;
       showToast(`🔥 INCRÍVEL! Você acertou as 3 contas e voltou para a Fase ${gameState.stage}!`);
@@ -3377,6 +3385,9 @@ async function submitClassAnswer(chosenClass) {
 
     myLocalWords.add(wordToClaim);
     myLocalScore += earnedPoints;
+    if (gameState.players && gameState.players[myPlayerId]) {
+      gameState.players[myPlayerId].score = Number(gameState.players[myPlayerId].score || 0) + earnedPoints;
+    }
     gameState.claimedWords[wordToClaim] = { by: myName, points: earnedPoints };
 
     renderStudentGame(false);
