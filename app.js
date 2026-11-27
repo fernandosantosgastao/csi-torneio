@@ -916,6 +916,10 @@ function clearSessionState() {
 }
 
 function redirectStudentToFreshJoin() {
+  roomPin = "";
+  myPlayerId = "";
+  isRecompLocked = false;
+  isMathLocked = false;
   clearSessionState();
   resetToLobby();
   selectLobbyRole("student");
@@ -928,10 +932,14 @@ function redirectStudentToFreshJoin() {
 }
 
 function exitEliminatedToStudentPortal() {
-  document.getElementById("eliminatedModal")?.classList.add("hidden");
+  const elimModal = document.getElementById("eliminatedModal");
+  if (elimModal) elimModal.classList.add("hidden");
   redirectStudentToFreshJoin();
   showToast("🚪 Você saiu da sala. Digite o código de outra sala para entrar.");
 }
+
+window.redirectStudentToFreshJoin = redirectStudentToFreshJoin;
+window.exitEliminatedToStudentPortal = exitEliminatedToStudentPortal;
 
 function exitAndClearSession() {
   clearSessionState();
@@ -2974,6 +2982,7 @@ function getWordClassMap() {
 }
 
 function reconcileRemoteStudentRoomState(remote) {
+  if (!roomPin || !myPlayerId) return;
   if (!remote) return;
 
   if (remote.closed || remote.deletedByAdmin) {
@@ -3229,7 +3238,7 @@ async function joinAsStudent(savedSession = null) {
 
   if (joinRetryTimer) clearInterval(joinRetryTimer);
   joinRetryTimer = setInterval(async () => {
-    if (gameState.players && gameState.players[myPlayerId]) {
+    if (!roomPin || !myPlayerId || (gameState.players && gameState.players[myPlayerId])) {
       clearInterval(joinRetryTimer);
       return;
     }
@@ -3242,7 +3251,7 @@ async function joinAsStudent(savedSession = null) {
 
   if (pollTimer) clearInterval(pollTimer);
   pollTimer = setInterval(async () => {
-    if (isRoomSyncInFlight) return;
+    if (!roomPin || !myPlayerId || isRoomSyncInFlight) return;
     isRoomSyncInFlight = true;
     try {
       const roomCheck = await dbGetRoom(roomPin, true);
@@ -3722,6 +3731,7 @@ async function submitRepechageAnswer(chosenOpt) {
 }
 
 function openEliminatedModal(reason) {
+  if (!roomPin || !myPlayerId) return;
   closeQuizModal();
   document.getElementById("mathModal").classList.add("hidden");
   document.getElementById("recompositionModal").classList.add("hidden");
@@ -4055,7 +4065,7 @@ function bindGlobalLifecycleListeners() {
   }, false);
 
   document.addEventListener("visibilitychange", async () => {
-    if (document.hidden || !roomPin || isBotModeActive || isRoomSyncInFlight) return;
+    if (document.hidden || !roomPin || !myPlayerId || isBotModeActive || isRoomSyncInFlight) return;
     if (!document.getElementById("viewStudent")?.classList.contains("hidden")) {
       isRoomSyncInFlight = true;
       try {
