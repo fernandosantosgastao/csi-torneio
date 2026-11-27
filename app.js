@@ -252,8 +252,7 @@ let isMathLocked = false;
 let currentMathChallenge = null;
 let mathAttempts = 0;
 let solvedMathCount = 0;
-let matchStartedAtMs = 0;
-let lastTimedMathSlot = 0;
+let nextMathTriggerAtMs = 0;
 
 let isStageTransitionMath = false;
 let stageMathRemainingQuestions = 0;
@@ -293,6 +292,10 @@ let adminFilteredCandidates = [];
 let isDragging = false;
 let startCell = null;
 let currentSelection = [];
+
+function resetThreeMinuteMathCycle() {
+  nextMathTriggerAtMs = Date.now() + MATH_TIME_INTERVAL_MS;
+}
 
 function showToast(msg) {
   const t = document.createElement("div");
@@ -908,8 +911,7 @@ function saveSessionState(role, extra = {}) {
       cls: myClass,
       roomLabel: extra.roomLabel || gameState.roomLabel || "",
       repStep,
-      solvedMathCount,
-      lastTimedMathSlot
+      solvedMathCount
     };
     localStorage.setItem("csi_active_session", JSON.stringify(session));
   } catch (e) {}
@@ -1257,8 +1259,7 @@ function resetToLobby() {
   stageMathRemainingQuestions = 0;
   victoryModalDismissedForMatch = false;
   isRoomSyncInFlight = false;
-  matchStartedAtMs = 0;
-  lastTimedMathSlot = 0;
+  nextMathTriggerAtMs = 0;
   playerStreak = 0;
   syncCountdownBannerVisibility();
   document.body.classList.remove("pseudo-fullscreen");
@@ -2343,29 +2344,24 @@ function isQuizModalOpen() {
   return !document.getElementById("quizModal")?.classList.contains("hidden");
 }
 
-function getElapsedMatchMs() {
-  if (!matchStartedAtMs) return 0;
-  return Math.max(0, Date.now() - matchStartedAtMs);
-}
-
 function formatRemainingToNextMathMMSS() {
-  if (!matchStartedAtMs) return "03:00";
-  const elapsed = getElapsedMatchMs();
-  const nextSlotMs = (lastTimedMathSlot + 1) * MATH_TIME_INTERVAL_MS;
-  return formatSecondsMMSS(Math.ceil(Math.max(0, nextSlotMs - elapsed) / 1000));
+  if (!nextMathTriggerAtMs) return "03:00";
+  const remainingSec = Math.ceil(Math.max(0, nextMathTriggerAtMs - Date.now()) / 1000);
+  return formatSecondsMMSS(remainingSec);
 }
 
 function checkTimedMathGateTrigger() {
   if (isBotModeActive || isMathLocked || isRecompLocked || isStageTransitionMath || isQuizModalOpen() || gameState.finished || !gameState.started) {
     return false;
   }
-  if (!matchStartedAtMs) return false;
+  if (!nextMathTriggerAtMs) {
+    resetThreeMinuteMathCycle();
+    return false;
+  }
 
-  const currentSlot = Math.floor(getElapsedMatchMs() / MATH_TIME_INTERVAL_MS);
-  if (currentSlot >= 1 && currentSlot > lastTimedMathSlot) {
-    lastTimedMathSlot = currentSlot;
-    saveSessionState("student");
-    openMathLockModal(currentSlot, false);
+  if (Date.now() >= nextMathTriggerAtMs) {
+    resetThreeMinuteMathCycle();
+    openMathLockModal(1, false);
     return true;
   }
   return false;
@@ -2375,18 +2371,21 @@ function triggerBotModeMathIfNeeded() {
   if (!isBotModeActive || isMathLocked || isRecompLocked || isStageTransitionMath || isQuizModalOpen()) {
     return false;
   }
-  if (!matchStartedAtMs) return false;
+  if (!nextMathTriggerAtMs) {
+    resetThreeMinuteMathCycle();
+    return false;
+  }
 
-  const currentSlot = Math.floor(getElapsedMatchMs() / MATH_TIME_INTERVAL_MS);
-  if (currentSlot >= 1 && currentSlot > lastTimedMathSlot) {
-    lastTimedMathSlot = currentSlot;
-    openMathLockModal(currentSlot, false);
+  if (Date.now() >= nextMathTriggerAtMs) {
+    resetThreeMinuteMathCycle();
+    openMathLockModal(1, false);
     return true;
   }
   return false;
 }
 
 function startStageTransitionMathSequence(nextStageNumber) {
+  resetThreeMinuteMathCycle();
   isMathLocked = false;
   isRecompLocked = false;
   isStageTransitionMath = true;
@@ -2500,8 +2499,7 @@ function startInstantBotMatch() {
   stageMathRemainingQuestions = 0;
   victoryModalDismissedForMatch = false;
   playerStreak = 0;
-  matchStartedAtMs = Date.now();
-  lastTimedMathSlot = 0;
+  resetThreeMinuteMathCycle();
   myName = document.getElementById("inputStudentName").value.trim() || "Diretora";
   const baseBotStory = STORY_BANK[Math.floor(Math.random() * STORY_BANK.length)];
   botStory = randomizeStorySupportSentences(baseBotStory);
@@ -2906,8 +2904,7 @@ async function startTournamentMatch() {
   }
 
   victoryModalDismissedForMatch = false;
-  matchStartedAtMs = Date.now();
-  lastTimedMathSlot = 0;
+  resetThreeMinuteMathCycle();
   gameState.closed = false;
   gameState.started = true;
   gameState.v = (gameState.v || 1) + 1;
@@ -2971,8 +2968,7 @@ async function restartFullTournament() {
   const { grid, placements } = generateGrid(roomPin + "_reset_" + Date.now(), story.words);
 
   victoryModalDismissedForMatch = false;
-  matchStartedAtMs = 0;
-  lastTimedMathSlot = 0;
+  nextMathTriggerAtMs = 0;
   gameState.v = (gameState.v || 1) + 1;
   gameState.closed = false;
   gameState.started = false;
@@ -3148,8 +3144,7 @@ function reconcileRemoteStudentRoomState(remote) {
     myLocalScore = 0;
     victoryModalDismissedForMatch = false;
     playerStreak = 0;
-    matchStartedAtMs = 0;
-    lastTimedMathSlot = 0;
+    nextMathTriggerAtMs = 0;
     isMathLocked = false;
     isRecompLocked = false;
     isStageTransitionMath = false;
@@ -3172,8 +3167,7 @@ function reconcileRemoteStudentRoomState(remote) {
 
   if (!wasStarted && remote.started) {
     victoryModalDismissedForMatch = false;
-    matchStartedAtMs = Date.now();
-    lastTimedMathSlot = 0;
+    resetThreeMinuteMathCycle();
     gameState = remote;
     const meStart = gameState.players && gameState.players[myPlayerId];
     if (meStart && typeof meStart.score === "number") {
@@ -3190,6 +3184,7 @@ function reconcileRemoteStudentRoomState(remote) {
   if (stageChanged) {
     myLocalWords.clear();
     victoryModalDismissedForMatch = false;
+    resetThreeMinuteMathCycle();
     isRecompLocked = false;
     if (recompTimerInterval) {
       clearInterval(recompTimerInterval);
@@ -3290,8 +3285,7 @@ async function joinAsStudent(savedSession = null) {
   myLocalScore = 0;
   victoryModalDismissedForMatch = false;
   playerStreak = 0;
-  matchStartedAtMs = Date.now();
-  lastTimedMathSlot = savedSession ? (savedSession.lastTimedMathSlot || 0) : 0;
+  resetThreeMinuteMathCycle();
   solvedMathCount = savedSession ? (savedSession.solvedMathCount || 0) : 0;
   isMathLocked = false;
   isRecompLocked = false;
@@ -3556,9 +3550,8 @@ function openMathLockModal(milestoneCount, isStageSequence = false) {
     document.getElementById("mathAttemptsBadge").textContent =
       `Questão ${currentQuestionNum} de ${stageMathTotalQuestions} • Tentativas: 3 de 3`;
   } else {
-    const mins = milestoneCount ? `${milestoneCount * 3} min` : "3 minutos";
     document.getElementById("mathTriggerReason").textContent =
-      `A partida completou ${mins}! Resolva esta questão de matemática (máximo 3 tentativas antes da recomposição):`;
+      `Ciclo de 3 minutos concluído! Resolva esta questão de matemática (máximo 3 tentativas antes da recomposição):`;
     document.getElementById("mathAttemptsBadge").textContent = "Tentativas restantes: 3 de 3";
   }
 
@@ -3607,11 +3600,13 @@ async function submitMathAnswer(chosenOpt) {
       } else {
         isStageTransitionMath = false;
         isMathLocked = false;
+        resetThreeMinuteMathCycle();
         document.getElementById("mathModal").classList.add("hidden");
         showToast("🎯 3 questões concluídas! Você avançou para a nova fase!");
       }
     } else {
       isMathLocked = false;
+      resetThreeMinuteMathCycle();
       document.getElementById("mathModal").classList.add("hidden");
       showToast(`🧮 Questão resolvida! +${bonusPts} pts de matemática!`);
     }
@@ -3813,6 +3808,7 @@ function finishRecomposition(toastMessage) {
   isRecompLocked = false;
   isStageTransitionMath = false;
   stageMathRemainingQuestions = 0;
+  resetThreeMinuteMathCycle();
   recompSecondsLeft = RECOMP_WAIT_SECONDS;
   recompMathProgress = 0;
   recompMathErrors = 0;
