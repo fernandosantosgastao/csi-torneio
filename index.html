@@ -395,6 +395,15 @@
             <div id="adminModeratorsList" class="mod-list-tags"></div>
           </div>
 
+          <div id="adminDangerResetBox" class="admin-story-box hidden" style="border-color: rgba(244, 63, 94, 0.55); background: rgba(244, 63, 94, 0.08);">
+            <strong style="color:#fda4af; font-size:0.9rem; display:block; margin-bottom:6px;">🧨 Controle Master Admin: Reset Geral &amp; Restauração</strong>
+            <div style="font-size:0.78rem; color:var(--text-muted); margin-bottom:10px;">Fecha todas as salas, exclui todas as salas criadas e limpa o ranking. O histórico permanece salvo até você limpar.</div>
+            <div style="display:flex; gap:8px; flex-wrap:wrap;">
+              <button type="button" class="btn-danger btn-sm" id="btnAdminNukeAll" onclick="adminNukeAllRoomsAndRanking()">🧨 Fechar, Limpar Ranking e Excluir Todas as Salas</button>
+              <button type="button" class="btn-ghost btn-sm" id="btnClearRoomHistory" onclick="clearRoomHistoryManually()">🧹 Limpar Histórico</button>
+            </div>
+          </div>
+
           <div id="adminStoryCreatorBox" class="admin-story-box hidden">
             <strong style="color:var(--accent); font-size:0.9rem; display:block; margin-bottom:8px;">✍️ Painel Admin: Criar &amp; Filtrar Novo Conto</strong>
             <div class="form-group">
@@ -423,7 +432,7 @@
 
           <div id="savedRoomsBox" class="saved-rooms-box">
             <div style="display:flex; justify-content:space-between; align-items:center;">
-              <span id="savedRoomsHeaderTitle" style="font-size:0.84rem; font-weight:800; color:var(--accent);">📂 Minhas Salas Abertas / Recentes</span>
+              <span id="savedRoomsHeaderTitle" style="font-size:0.84rem; font-weight:800; color:var(--accent);">📂 Minhas Salas Criadas</span>
               <button type="button" class="btn-ghost btn-sm" onclick="loadRecentTeacherRooms()">↻ Atualizar</button>
             </div>
             <div id="savedRoomsList" class="saved-rooms-list">
