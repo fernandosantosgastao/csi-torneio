@@ -332,6 +332,16 @@ function showRouteSection(route) {
   }
 }
 
+function recordRouteHistory(route, replaceState = false) {
+  try {
+    if (replaceState) {
+      window.history.replaceState({ route }, "", route);
+    } else if (window.location.pathname !== route) {
+      window.history.pushState({ route }, "", route);
+    }
+  } catch (e) {}
+}
+
 async function navigateToRoute(targetPath, replaceState = false) {
   const route = normalizePath(targetPath);
 
@@ -346,12 +356,7 @@ async function navigateToRoute(targetPath, replaceState = false) {
 
   try { localStorage.setItem(LAST_ROUTE_KEY, route); } catch (e) {}
 
-  if (replaceState) {
-    window.history.replaceState({ route }, "", route);
-  } else if (window.location.pathname !== route) {
-    window.history.pushState({ route }, "", route);
-  }
-
+  recordRouteHistory(route, replaceState);
   showRouteSection(route);
 
   if (route === "/") {
@@ -2149,8 +2154,9 @@ async function loadGlobalRankingTable() {
   } catch (e) {}
 }
 
-window.addEventListener("popstate", () => {
-  navigateToRoute(window.location.pathname, true);
+window.addEventListener("popstate", (event) => {
+  const nextPath = event?.state?.route || window.location.pathname;
+  navigateToRoute(nextPath, true);
 });
 
 async function initPortal() {
