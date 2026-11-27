@@ -114,12 +114,13 @@ const STORIES = [
 ];
 
 const VALID_ROUTES = ["/", "/painel-de-controle", "/gerador-de-salas", "/salas-online"];
+const LAST_ROUTE_KEY = "csi_last_route_v1";
 
 let authSession = null;
 let currentProfile = null;
 let moderatorsEmails = [];
 let botTestAllowed = false;
-let portalReady = false;
+let authLoadedOnce = false;
 
 let activeRoomPin = "";
 let activeRoomState = null;
@@ -222,24 +223,20 @@ function normalizePath(pathname) {
   return "/";
 }
 
-async function navigateToRoute(targetPath, replaceState = false) {
-  const route = normalizePath(targetPath);
+function readInitialRoute() {
+  const currentNorm = normalizePath(window.location.pathname);
+  if (currentNorm !== "/") return currentNorm;
+  try {
+    const saved = normalizePath(localStorage.getItem(LAST_ROUTE_KEY) || "/");
+    if (saved && saved !== "/") {
+      window.history.replaceState({ route: saved }, "", saved);
+      return saved;
+    }
+  } catch (e) {}
+  return "/";
+}
 
-  if (portalReady && route === "/painel-de-controle" && !canAccessControlPanel()) {
-    toast("Acesso restrito a administradores e moderadores autorizados.");
-    return navigateToRoute("/", replaceState);
-  }
-
-  if (portalReady && route === "/gerador-de-salas" && !authSession) {
-    toast("Faça login como professor para acessar o gerador de salas.");
-  }
-
-  if (replaceState) {
-    window.history.replaceState({ route }, "", route);
-  } else if (window.location.pathname !== route) {
-    window.history.pushState({ route }, "", route);
-  }
-
+function showRouteSection(route) {
   document.querySelectorAll(".route-view").forEach(sec => sec.classList.add("hidden"));
   document.getElementById("navHomeBtn")?.classList.toggle("active", route === "/");
   document.getElementById("navSalas24hBtn")?.classList.toggle("active", route === "/salas-online");
@@ -248,20 +245,45 @@ async function navigateToRoute(targetPath, replaceState = false) {
 
   if (route === "/") {
     document.getElementById("routeHome")?.classList.remove("hidden");
-    await loadGlobalRankingTable();
   } else if (route === "/salas-online") {
     document.getElementById("routeSalasOnline")?.classList.remove("hidden");
-    syncSalas24hView();
   } else if (route === "/gerador-de-salas") {
     document.getElementById("routeCreateClass")?.classList.remove("hidden");
-    syncTeacherGeneratorView();
   } else if (route === "/painel-de-controle") {
     document.getElementById("routeControlPanel")?.classList.remove("hidden");
-    if (canAccessControlPanel()) {
-      await refreshControlPanel();
-    } else if (portalReady) {
-      return navigateToRoute("/", true);
-    }
+  }
+}
+
+async function navigateToRoute(targetPath, replaceState = false) {
+  const route = normalizePath(targetPath);
+
+  if (authLoadedOnce && route === "/painel-de-controle" && !canAccessControlPanel()) {
+    toast("Acesso restrito a administradores e moderadores autorizados.");
+    return navigateToRoute("/", replaceState);
+  }
+
+  if (authLoadedOnce && route === "/gerador-de-salas" && !authSession) {
+    toast("Faça login como professor para acessar o gerador de salas.");
+  }
+
+  try { localStorage.setItem(LAST_ROUTE_KEY, route); } catch (e) {}
+
+  if (replaceState) {
+    window.history.replaceState({ route }, "", route);
+  } else if (window.location.pathname !== route) {
+    window.history.pushState({ route }, "", route);
+  }
+
+  showRouteSection(route);
+
+  if (route === "/") {
+    await loadGlobalRankingTable();
+  } else if (route === "/salas-online") {
+    syncSalas24hView();
+  } else if (route === "/gerador-de-salas") {
+    syncTeacherGeneratorView();
+  } else if (route === "/painel-de-controle" && canAccessControlPanel()) {
+    await refreshControlPanel();
   }
 }
 
@@ -1237,10 +1259,19 @@ window.addEventListener("popstate", () => {
 async function initPortal() {
   syncFullscreenButtonLabel();
   attachArenaPointerSelection();
+  const initialRoute = readInitialRoute();
+  await navigateToRoute(initialRoute, true);
   await loadSessionAndProfile();
   await loadPlatformState();
-  portalReady = true;
-  await navigateToRoute(window.location.pathname, true);
+  authLoadedOnce = true;
+
+  const postAuthRoute = normalizePath(window.location.pathname);
+  if (postAuthRoute === "/painel-de-controle" && !canAccessControlPanel()) {
+    toast("Acesso restrito a administradores e moderadores autorizados.");
+    await navigateToRoute("/", true);
+  } else {
+    await navigateToRoute(postAuthRoute, true);
+  }
 }
 
 initPortal();
