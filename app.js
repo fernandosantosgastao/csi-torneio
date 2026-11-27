@@ -1296,6 +1296,7 @@ function toggleFullscreen() {
         try { docEl.webkitRequestFullscreen(); } catch (e) {}
       }
     }
+    refreshMathCountdownBadge();
     showToast(playingWordsearch ? "Modo foco: grade ampliada para jogar!" : "Tela cheia ativada");
   } else {
     document.body.classList.remove("pseudo-fullscreen");
@@ -1309,6 +1310,7 @@ function toggleFullscreen() {
         try { document.webkitExitFullscreen(); } catch (e) {}
       }
     }
+    refreshMathCountdownBadge();
     showToast("Tela cheia desativada");
   }
 }
