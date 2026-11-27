@@ -119,6 +119,7 @@ let authSession = null;
 let currentProfile = null;
 let moderatorsEmails = [];
 let botTestAllowed = false;
+let portalReady = false;
 
 let activeRoomPin = "";
 let activeRoomState = null;
@@ -145,6 +146,39 @@ function toast(msg) {
   document.body.appendChild(el);
   setTimeout(() => el.remove(), 3500);
 }
+
+function syncFullscreenButtonLabel() {
+  const btn = document.getElementById("btnFullscreenToggle");
+  if (!btn) return;
+  const active = !!(document.fullscreenElement || document.webkitFullscreenElement);
+  btn.textContent = active ? "🗗 Sair Tela Cheia" : "⛶ Tela Cheia";
+}
+
+async function toggleFullscreenMode() {
+  try {
+    if (!document.fullscreenElement && !document.webkitFullscreenElement) {
+      const root = document.documentElement;
+      if (root.requestFullscreen) {
+        await root.requestFullscreen();
+      } else if (root.webkitRequestFullscreen) {
+        await root.webkitRequestFullscreen();
+      } else {
+        toast("Use F11 no teclado para alternar tela cheia neste navegador.");
+      }
+    } else if (document.exitFullscreen) {
+      await document.exitFullscreen();
+    } else if (document.webkitExitFullscreen) {
+      await document.webkitExitFullscreen();
+    }
+  } catch (e) {
+    toast("Use F11 no teclado para alternar tela cheia.");
+  } finally {
+    syncFullscreenButtonLabel();
+  }
+}
+
+document.addEventListener("fullscreenchange", syncFullscreenButtonLabel);
+document.addEventListener("webkitfullscreenchange", syncFullscreenButtonLabel);
 
 function getHeaders(json = false) {
   const h = { "apikey": SUPABASE_KEY };
@@ -191,12 +225,12 @@ function normalizePath(pathname) {
 async function navigateToRoute(targetPath, replaceState = false) {
   const route = normalizePath(targetPath);
 
-  if (route === "/painel-de-controle" && !canAccessControlPanel()) {
+  if (portalReady && route === "/painel-de-controle" && !canAccessControlPanel()) {
     toast("Acesso restrito a administradores e moderadores autorizados.");
     return navigateToRoute("/", replaceState);
   }
 
-  if (route === "/gerador-de-salas" && !authSession) {
+  if (portalReady && route === "/gerador-de-salas" && !authSession) {
     toast("Faça login como professor para acessar o gerador de salas.");
   }
 
@@ -223,7 +257,11 @@ async function navigateToRoute(targetPath, replaceState = false) {
     syncTeacherGeneratorView();
   } else if (route === "/painel-de-controle") {
     document.getElementById("routeControlPanel")?.classList.remove("hidden");
-    await refreshControlPanel();
+    if (canAccessControlPanel()) {
+      await refreshControlPanel();
+    } else if (portalReady) {
+      return navigateToRoute("/", true);
+    }
   }
 }
 
@@ -1197,9 +1235,11 @@ window.addEventListener("popstate", () => {
 });
 
 async function initPortal() {
+  syncFullscreenButtonLabel();
   attachArenaPointerSelection();
   await loadSessionAndProfile();
   await loadPlatformState();
+  portalReady = true;
   await navigateToRoute(window.location.pathname, true);
 }
 
