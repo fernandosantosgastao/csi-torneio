@@ -14,6 +14,8 @@ const CLASS_COLORS = {
 const GRAMMAR_CLASSES = Object.keys(CLASS_COLORS);
 const MAX_QUIZ_ATTEMPTS = 3;
 const TEACHER_RESTORE_WINDOW_MS = 7 * 86400000;
+const MATH_GATE_INTERVAL = 5;
+const MATH_PERSONAL_COOLDOWN_MS = 25000;
 
 const DEFAULT_STORIES = [
   {
@@ -1932,6 +1934,7 @@ let currentMathChallenge = null;
 let mathAttempts = 0;
 let solvedMathCount = 0;
 let lastTriggeredGlobalMilestone = 0;
+let lastMathPromptAtMs = 0;
 
 let isRecompLocked = false;
 let recompTimerInterval = null;
@@ -2222,11 +2225,17 @@ async function dbPushEvent(pin, payloadObj) {
   return { ok: true };
 }
 
+function isQuizModalCurrentlyOpen() {
+  const qModal = document.getElementById("quizModal");
+  return !!(activeQuizWord || (qModal && !qModal.classList.contains("hidden")));
+}
+
 function triggerBotModeMathIfNeeded() {
-  if (isMathLocked || isRecompLocked) return false;
+  if (isMathLocked || isRecompLocked || isQuizModalCurrentlyOpen()) return false;
+  if (Date.now() - lastMathPromptAtMs < MATH_PERSONAL_COOLDOWN_MS) return false;
   const foundCount = Object.keys(botClaimedWords).length;
-  const milestone = Math.floor(foundCount / 2) * 2;
-  if (milestone >= 2 && milestone > botLastMilestone) {
+  const milestone = Math.floor(foundCount / MATH_GATE_INTERVAL) * MATH_GATE_INTERVAL;
+  if (milestone >= MATH_GATE_INTERVAL && milestone > botLastMilestone) {
     botLastMilestone = milestone;
     openMathLockModal(milestone);
     return true;
@@ -2249,6 +2258,7 @@ function startInstantBotMatch() {
   isBotModeActive = true;
   isRecompLocked = false;
   victoryModalDismissedForMatch = false;
+  lastMathPromptAtMs = 0;
   playerStreak = 0;
   myName = document.getElementById("inputStudentName").value.trim() || "Diretora";
   const baseBotStory = STORY_BANK[Math.floor(Math.random() * STORY_BANK.length)];
@@ -2283,7 +2293,7 @@ function startInstantBotMatch() {
   showToast("🤖 Teste iniciado! Os 4 bots jogam devagar para você vencer.");
 
   botTimer = setInterval(() => {
-    if (!isBotModeActive || isMathLocked || isRecompLocked) return;
+    if (!isBotModeActive || isMathLocked || isRecompLocked || isQuizModalCurrentlyOpen()) return;
     const rem = botStory.words.filter(w => !botClaimedWords[w.word]);
     if (rem.length <= 3) return;
     if (Math.random() < 0.4) return;
@@ -2312,7 +2322,7 @@ function renderBotTestUI(forceRebuild = false) {
   document.getElementById("botRemaining").textContent = Math.max(0, botStory.words.length - foundCount);
   document.getElementById("botMathGateIndicator").textContent = isRecompLocked
     ? "🛠️ Em Recomposição!"
-    : (isMathLocked ? "🔒 Portal Matemático!" : `🧮 Portal: ${foundCount % 2}/2 palavras`);
+    : (isMathLocked ? "🔒 Portal Matemático!" : `🧮 Portal: ${foundCount % MATH_GATE_INTERVAL}/${MATH_GATE_INTERVAL} palavras`);
 
   const botsSorted = botPlayers.filter(p => !p.isHuman).sort((a, b) => b.score - a.score);
   const topBotScore = botsSorted.length > 0 ? botsSorted[0].score : 0;
@@ -2645,6 +2655,7 @@ async function startTournamentMatch() {
   }
 
   victoryModalDismissedForMatch = false;
+  lastMathPromptAtMs = 0;
   gameState.closed = false;
   gameState.started = true;
   gameState.v = (gameState.v || 1) + 1;
@@ -2708,6 +2719,7 @@ async function restartFullTournament() {
   const { grid, placements } = generateGrid(roomPin + "_reset_" + Date.now(), story.words);
 
   victoryModalDismissedForMatch = false;
+  lastMathPromptAtMs = 0;
   gameState.v = (gameState.v || 1) + 1;
   gameState.closed = false;
   gameState.started = false;
@@ -2867,6 +2879,7 @@ function reconcileRemoteStudentRoomState(remote) {
     myLocalWords.clear();
     myLocalScore = 0;
     victoryModalDismissedForMatch = false;
+    lastMathPromptAtMs = 0;
     playerStreak = 0;
     lastTriggeredGlobalMilestone = 0;
     isMathLocked = false;
@@ -2979,7 +2992,7 @@ function reconcileRemoteStudentRoomState(remote) {
     if (!victoryModalDismissedForMatch) {
       showFinalTop3Modal();
     }
-  } else if (!me || me.status === "active") {
+  } else if ((!me || me.status === "active") && !isQuizModalCurrentlyOpen()) {
     checkGlobalMathGateTrigger();
   }
 }
@@ -3002,6 +3015,7 @@ async function joinAsStudent(savedSession = null) {
   myLocalWords.clear();
   myLocalScore = 0;
   victoryModalDismissedForMatch = false;
+  lastMathPromptAtMs = 0;
   playerStreak = 0;
   lastTriggeredGlobalMilestone = savedSession ? (savedSession.lastTriggeredGlobalMilestone || 0) : 0;
   solvedMathCount = savedSession ? (savedSession.solvedMathCount || 0) : 0;
@@ -3046,7 +3060,7 @@ async function joinAsStudent(savedSession = null) {
     }
 
     if (!savedSession) {
-      lastTriggeredGlobalMilestone = Math.floor(Object.keys(gameState.claimedWords || {}).length / 2) * 2;
+      lastTriggeredGlobalMilestone = Math.floor(Object.keys(gameState.claimedWords || {}).length / MATH_GATE_INTERVAL) * MATH_GATE_INTERVAL;
     }
   } else {
     if (savedSession) {
@@ -3185,13 +3199,13 @@ function renderStudentGame(forceRebuildGrid = false) {
   document.getElementById("studentScore").textContent = displayScore;
 
   const totalClaimedInRoom = Object.keys(gameState.claimedWords).length;
-  const mod = totalClaimedInRoom % 2;
+  const mod = totalClaimedInRoom % MATH_GATE_INTERVAL;
   document.getElementById("mathGateIndicator").textContent =
     isRecompLocked
       ? "🛠️ Em Recomposição!"
       : (isMathLocked
         ? "🔒 Portal Matemático Ativo!"
-        : `🧮 Portal da Turma: ${mod}/2 palavras`);
+        : `🧮 Portal da Turma: ${mod}/${MATH_GATE_INTERVAL} palavras`);
 
   document.getElementById("studentRemaining").textContent = Math.max(0, story.words.length - totalClaimedInRoom);
 
@@ -3258,16 +3272,17 @@ function renderStudentGame(forceRebuildGrid = false) {
 
 function checkGlobalMathGateTrigger() {
   if (isMathLocked || isRecompLocked || gameState.finished || !gameState.started) return true;
+  if (isQuizModalCurrentlyOpen()) return false;
+  if (Date.now() - lastMathPromptAtMs < MATH_PERSONAL_COOLDOWN_MS) return false;
 
   const totalClaimedInRoom = Object.keys(gameState.claimedWords).length;
   const story = getCurrentStory();
   if (totalClaimedInRoom >= story.words.length) return false;
 
-  const currentMilestone = Math.floor(totalClaimedInRoom / 2) * 2;
-  if (currentMilestone >= 2 && currentMilestone > lastTriggeredGlobalMilestone) {
+  const currentMilestone = Math.floor(totalClaimedInRoom / MATH_GATE_INTERVAL) * MATH_GATE_INTERVAL;
+  if (currentMilestone >= MATH_GATE_INTERVAL && currentMilestone > lastTriggeredGlobalMilestone) {
     lastTriggeredGlobalMilestone = currentMilestone;
     saveSessionState("student");
-    closeQuizModal();
     openMathLockModal(currentMilestone);
     return true;
   }
@@ -3275,11 +3290,13 @@ function checkGlobalMathGateTrigger() {
 }
 
 function openMathLockModal(milestoneCount) {
+  if (isQuizModalCurrentlyOpen()) return;
   isMathLocked = true;
+  lastMathPromptAtMs = Date.now();
   mathAttempts = 0;
   isDragging = false;
   clearAllSelectionVisuals();
-  const countTxt = milestoneCount ? `${milestoneCount} palavras` : "mais 2 palavras";
+  const countTxt = milestoneCount ? `${milestoneCount} palavras` : `mais ${MATH_GATE_INTERVAL} palavras`;
   document.getElementById("mathTriggerReason").textContent = `A rodada alcançou ${countTxt}! Resolva a operação abaixo (máximo 3 tentativas antes da recomposição):`;
   document.getElementById("mathAttemptsBadge").textContent = "Tentativas restantes: 3 de 3";
   loadFreshMathQuestionInPortal();
@@ -3311,6 +3328,7 @@ async function submitMathAnswer(chosenOpt) {
   if (String(chosenOpt) === String(currentMathChallenge.correct)) {
     const bonusPts = mathAttempts === 0 ? 80 : 50;
     isMathLocked = false;
+    lastMathPromptAtMs = Date.now();
     mathAttempts = 0;
     document.getElementById("mathModal").classList.add("hidden");
     document.getElementById("mathHint").classList.add("hidden");
@@ -3511,6 +3529,7 @@ function finishRecomposition(toastMessage) {
     recompTimerInterval = null;
   }
   isRecompLocked = false;
+  lastMathPromptAtMs = Date.now();
   recompSecondsLeft = 120;
   recompMathProgress = 0;
   recompMathErrors = 0;
@@ -3783,6 +3802,7 @@ function renderQuizOptionsButtons() {
 }
 
 function openQuizModal(wordObj) {
+  if (isMathLocked || isRecompLocked) return;
   activeQuizWord = wordObj;
   quizAttempts = 0;
   wrongQuizClasses = new Set();
@@ -3798,6 +3818,9 @@ function closeQuizModal() {
   document.getElementById("quizModal").classList.add("hidden");
   activeQuizWord = null;
   wrongQuizClasses = new Set();
+  if (!isBotModeActive && gameState.started && !gameState.finished) {
+    checkGlobalMathGateTrigger();
+  }
 }
 
 async function submitClassAnswer(chosenClass) {
