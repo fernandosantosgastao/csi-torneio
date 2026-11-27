@@ -151,8 +151,8 @@
   <div class="nav-pills">
     <button type="button" class="nav-pill-btn active" id="navHomeBtn" onclick="navigateToRoute('/')">Home</button>
     <button type="button" class="nav-pill-btn" id="navSalas24hBtn" onclick="navigateToRoute('/salas-online')">Salas 24h</button>
-    <button type="button" class="nav-pill-btn" id="navCreateClassBtn" onclick="navigateToRoute('/create-class')">Gerador de Salas</button>
-    <button type="button" class="nav-pill-btn admin-pill hidden" id="navControlPanelBtn" onclick="navigateToRoute('/control-painel')">🛡️ Painel de Controle</button>
+    <button type="button" class="nav-pill-btn" id="navCreateClassBtn" onclick="navigateToRoute('/gerador-de-salas')">Gerador de Salas</button>
+    <button type="button" class="nav-pill-btn admin-pill hidden" id="navControlPanelBtn" onclick="navigateToRoute('/painel-de-controle')">🛡️ Painel de Controle</button>
   </div>
 
   <div class="header-actions">
@@ -181,18 +181,18 @@
 
         <div class="action-tile">
           <div>
-            <div style="font-weight:900; font-size:1.1rem; color:var(--gold);">🧑‍🏫 Gerador de Salas (/create-class)</div>
+            <div style="font-weight:900; font-size:1.1rem; color:var(--gold);">🧑‍🏫 Gerador de Salas (/gerador-de-salas)</div>
             <p style="font-size:0.88rem; color:#cbd5e1; margin-top:6px;">Área exclusiva para professores criarem salas com PIN, gerirem fases e acompanharem a turma.</p>
           </div>
-          <button type="button" class="btn-gold" onclick="navigateToRoute('/create-class')">Abrir Gerador de Salas</button>
+          <button type="button" class="btn-gold" onclick="navigateToRoute('/gerador-de-salas')">Abrir Gerador de Salas</button>
         </div>
 
         <div class="action-tile" id="homeAdminCard" style="display:none; border-color: rgba(192, 132, 252, 0.55);">
           <div>
-            <div style="font-weight:900; font-size:1.1rem; color:#e9d5ff;">🛡️ Painel de Controle (/control-painel)</div>
+            <div style="font-weight:900; font-size:1.1rem; color:#e9d5ff;">🛡️ Painel de Controle (/painel-de-controle)</div>
             <p style="font-size:0.88rem; color:#cbd5e1; margin-top:6px;">Gestão completa de contas, redefinição de senhas, moderadores, salas, ranking e modo 4 bots.</p>
           </div>
-          <button type="button" class="btn-purple" onclick="navigateToRoute('/control-painel')">Abrir Painel de Controle</button>
+          <button type="button" class="btn-purple" onclick="navigateToRoute('/painel-de-controle')">Abrir Painel de Controle</button>
         </div>
       </div>
     </div>
@@ -300,7 +300,7 @@
     </div>
   </section>
 
-  <!-- ROTA 3: GERADOR DE SALAS (/create-class) -->
+  <!-- ROTA 3: GERADOR DE SALAS (/gerador-de-salas) -->
   <section id="routeCreateClass" class="route-view hidden">
     <div id="teacherLoginCard" class="card card-teacher" style="max-width:520px; margin:0 auto;">
       <h2>🧑‍🏫 Acesso Exclusivo para Professores</h2>
@@ -377,7 +377,7 @@
     </div>
   </section>
 
-  <!-- ROTA 4: PAINEL DE CONTROLE (/control-painel) -->
+  <!-- ROTA 4: PAINEL DE CONTROLE (/painel-de-controle) -->
   <section id="routeControlPanel" class="route-view hidden">
     <div class="hero-panel" style="border-color: rgba(192, 132, 252, 0.55);">
       <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
@@ -504,6 +504,6 @@
   </div>
 </div>
 
-<script src="app.js?v=10"></script>
+<script src="app.js?v=11"></script>
 </body>
 </html>
