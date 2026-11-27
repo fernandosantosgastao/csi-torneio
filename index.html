@@ -235,6 +235,19 @@
       height: auto !important;
     }
 
+    body.focus-wordsearch-mode #mathCountdownBanner:not(.hidden),
+    body.focus-wordsearch-mode #botMathCountdownBanner:not(.hidden) {
+      display: flex !important;
+      order: -1 !important;
+      width: 100% !important;
+      max-width: 920px !important;
+      margin: 0 auto 6px auto !important;
+      padding: 8px 14px !important;
+      font-size: 0.84rem !important;
+      position: relative !important;
+      z-index: 3 !important;
+    }
+
     body.focus-wordsearch-mode .grid-wrapper,
     body.focus-wordsearch-mode .ws-grid {
       overflow: visible !important;
@@ -257,8 +270,6 @@
     body.focus-wordsearch-mode footer.site-footer,
     body.focus-wordsearch-mode #studentWaitingLobby,
     body.focus-wordsearch-mode #viewStudent .room-banner,
-    body.focus-wordsearch-mode #mathCountdownBanner,
-    body.focus-wordsearch-mode #botMathCountdownBanner,
     body.focus-wordsearch-mode #studentGameArea .card:first-child > h2,
     body.focus-wordsearch-mode #studentGameArea .card:first-child > p,
     body.focus-wordsearch-mode #studentGameArea .card:first-child > .story-box,
@@ -823,7 +834,7 @@
   CSI Torneio Morfológico &amp; Matemático • <a href="privacidade.html">Política de Privacidade (LGPD)</a>
 </footer>
 
-<script src="app.js?v=3"></script>
+<script src="app.js?v=4"></script>
 <script>
   document.addEventListener("DOMContentLoaded", () => {
     const loggedBox = document.getElementById("teacherLoggedBox");
