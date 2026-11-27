@@ -834,7 +834,6 @@ function buildNextStageStateFromCurrent(current) {
     true
   );
 
-  // Se houver 2 jogadores (ou no máximo 3 na disputa final), finaliza e elege o vencedor
   if (competingEntries.length <= 3) {
     competingEntries.forEach(([_, p]) => { p.status = "active"; });
     return {
@@ -928,10 +927,9 @@ async function persistStudentActionDirectlyToRoom(msg) {
     p.status = "eliminated";
   } else if (msg.type === "REPECHAGE_PASS") {
     p.status = "active";
-    p.score = (p.score || 0) + 100;
+    p.score = (p.score || 0) + 80;
   }
 
-  // Se todas as palavras da fase foram encontradas, classifica/manda p/ repescagem/elimina e avança para Fase 2 ou finaliza (<= 3 / 2 jogadores)
   const activeStoryObj = (latest.activeStory && Array.isArray(latest.activeStory.words))
     ? latest.activeStory
     : STORY_BANK[(latest.storyIdx || 0) % STORY_BANK.length];
@@ -2063,7 +2061,7 @@ function applySingleBroadcastActionToTeacherState(msg) {
     const p = ensurePlayerExists(canonicalId, msg.name, msg.cls);
     if (p.status === "repechage") {
       p.status = "active";
-      p.score += 100;
+      p.score += 80;
       dirty = true;
     }
   } else if (msg.type === "REPECHAGE_FAIL") {
@@ -2468,6 +2466,10 @@ function reconcileRemoteStudentRoomState(remote) {
     document.getElementById("recompositionModal").classList.add("hidden");
     document.getElementById("victoryModal").classList.add("hidden");
     gameState = remote;
+    const meStage = gameState.players && gameState.players[myPlayerId];
+    if (meStage && typeof meStage.score === "number") {
+      myLocalScore = meStage.score;
+    }
     saveSessionState("student");
     applyStoryToStudentUI();
     updateStudentScreenState();
@@ -2488,7 +2490,7 @@ function reconcileRemoteStudentRoomState(remote) {
   if (!remote.finished) {
     myLocalWords.forEach(w => {
       if (!remote.claimedWords[w]) {
-        remote.claimedWords[w] = { by: myName, points: 150 };
+        remote.claimedWords[w] = { by: myName, points: 100 };
       }
     });
   }
@@ -2496,7 +2498,9 @@ function reconcileRemoteStudentRoomState(remote) {
 
   const me = gameState.players[myPlayerId];
   if (me) {
-    if (typeof me.score === "number" && me.score > myLocalScore) myLocalScore = me.score;
+    if (typeof me.score === "number") {
+      myLocalScore = Math.max(myLocalScore, me.score);
+    }
     if (me.status === "eliminated") {
       openEliminatedModal("Você foi eliminado da partida.");
       return;
@@ -2718,7 +2722,9 @@ function renderStudentGame(forceRebuildGrid = false) {
   const wordClassMap = getWordClassMap();
 
   const remoteMe = gameState.players[myPlayerId];
-  const displayScore = Math.max(myLocalScore, remoteMe ? remoteMe.score : 0);
+  const displayScore = remoteMe && typeof remoteMe.score === "number"
+    ? Math.max(myLocalScore, remoteMe.score)
+    : myLocalScore;
   document.getElementById("studentScore").textContent = displayScore;
 
   const totalClaimedInRoom = Object.keys(gameState.claimedWords).length;
@@ -2846,7 +2852,7 @@ async function submitMathAnswer(chosenOpt) {
   if (!currentMathChallenge) return;
 
   if (String(chosenOpt) === String(currentMathChallenge.correct)) {
-    const bonusPts = mathAttempts === 0 ? 100 : 50;
+    const bonusPts = mathAttempts === 0 ? 80 : 50;
     isMathLocked = false;
     mathAttempts = 0;
     document.getElementById("mathModal").classList.add("hidden");
@@ -2856,7 +2862,7 @@ async function submitMathAnswer(chosenOpt) {
     if (isBotModeActive) {
       const human = botPlayers.find(p => p.isHuman);
       if (human) human.score += bonusPts;
-      showToast(`🧮 Portal desbloqueado! +${bonusPts} pts!`);
+      showToast(`🧮 Questão resolvida! +${bonusPts} pts!`);
       renderBotTestUI(false);
       if (Object.keys(botClaimedWords).length >= botStory.words.length) {
         showBotTestRankingModal();
@@ -2868,7 +2874,7 @@ async function submitMathAnswer(chosenOpt) {
     myLocalScore += bonusPts;
     saveSessionState("student");
 
-    showToast(`🧮 Portal desbloqueado! +${bonusPts} pts de bônus!`);
+    showToast(`🧮 Questão resolvida! +${bonusPts} pts de matemática!`);
     renderStudentGame(false);
 
     await Promise.all([
@@ -3106,11 +3112,11 @@ async function submitRepechageAnswer(chosenOpt) {
       if (gameState.players[myPlayerId]) {
         gameState.players[myPlayerId].status = "active";
       }
-      myLocalScore += 100;
+      myLocalScore += 80;
       showToast(`🔥 INCRÍVEL! Você acertou as 3 contas e voltou para a Fase ${gameState.stage}!`);
       await Promise.all([
         dbPushEvent(roomPin, { type: "REPECHAGE_PASS", playerId: myPlayerId, name: myName, cls: myClass }),
-        pushScoreToGlobalLeaderboard(100, 0, 3)
+        pushScoreToGlobalLeaderboard(80, 0, 3)
       ]);
       renderStudentGame(false);
     }
@@ -3328,7 +3334,7 @@ async function submitClassAnswer(chosenClass) {
       return;
     }
     if (chosenClass === activeQuizWord.cls) {
-      const pts = quizAttempts === 0 ? 150 : 75;
+      const pts = quizAttempts === 0 ? 100 : 70;
       const w = activeQuizWord.word;
       closeQuizModal();
       botClaimedWords[w] = { by: myName + " (Você)", points: pts };
@@ -3364,8 +3370,8 @@ async function submitClassAnswer(chosenClass) {
 
   if (chosenClass === activeQuizWord.cls) {
     playerStreak += 1;
-    const streakBonus = playerStreak >= 3 ? 15 : 0;
-    const earnedPoints = (quizAttempts === 0 ? 150 : 75) + streakBonus;
+    const streakBonus = playerStreak >= 3 ? 10 : 0;
+    const earnedPoints = (quizAttempts === 0 ? 100 : 70) + streakBonus;
     const wordToClaim = activeQuizWord.word;
     closeQuizModal();
 
@@ -3379,8 +3385,8 @@ async function submitClassAnswer(chosenClass) {
     if (!locked) {
       showToast(
         streakBonus > 0
-          ? `🔥 Sequência de ${playerStreak}! +${earnedPoints} pontos (inclui +${streakBonus} bônus)!`
-          : `🎯 Correto! +${earnedPoints} pontos!`
+          ? `🔥 Sequência de ${playerStreak}! +${earnedPoints} pts (+${streakBonus} bônus)!`
+          : `🎯 Palavra classificada! +${earnedPoints} pts!`
       );
     }
 
