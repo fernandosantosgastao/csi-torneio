@@ -240,6 +240,7 @@
       display: flex;
       gap: 5px;
       flex-wrap: wrap;
+      align-items: center;
     }
   </style>
 </head>
@@ -421,7 +422,7 @@
     </div>
   </section>
 
-  <!-- ROTA 3: GERADOR DE SALAS (/gerador-de-salas) - VISÃO CLÁSSICA DO PROFESSOR -->
+  <!-- ROTA 3: GERADOR DE SALAS (/gerador-de-salas) -->
   <section id="routeCreateClass" class="route-view hidden">
     <div id="teacherLoginCard" class="card card-teacher" style="max-width:520px; margin:0 auto;">
       <h2>🧑‍🏫 Acesso Exclusivo para Professores</h2>
@@ -518,7 +519,7 @@
     </div>
   </section>
 
-  <!-- ROTA 4: PAINEL DE CONTROLE (/painel-de-controle) - VISÃO MASTER DO ADMIN (DONO) -->
+  <!-- ROTA 4: PAINEL DE CONTROLE (/painel-de-controle) -->
   <section id="routeControlPanel" class="route-view hidden">
     <div class="hero-panel" style="border-color: rgba(192, 132, 252, 0.55);">
       <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
@@ -555,7 +556,7 @@
 
     <div class="game-layout">
       <div class="card card-teacher">
-        <h2>👥 Contas de Usuário &amp; Redefinição de Senha</h2>
+        <h2>👥 Contas de Usuário, Cargos &amp; Redefinição de Senha</h2>
         <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px;">
           <input type="email" id="ctrlResetEmailInput" placeholder="E-mail para redefinir senha" style="flex:1;">
           <button type="button" class="btn-gold btn-sm" onclick="controlSendPasswordReset()">🔑 Enviar Redefinição</button>
@@ -565,7 +566,7 @@
             <thead>
               <tr>
                 <th>Usuário</th>
-                <th>Cargo</th>
+                <th>Cargo (Role)</th>
                 <th>Assinatura</th>
                 <th>Ações</th>
               </tr>
@@ -619,7 +620,6 @@
       </div>
     </div>
 
-    <!-- INSPEÇÃO COMPLETA DA SALA SELECIONADA PELO ADMIN -->
     <div id="adminRoomInspector" class="card card-teacher hidden" style="margin-top:18px;">
       <div class="room-banner" style="margin-bottom:16px;">
         <div>
@@ -692,6 +692,6 @@
   </div>
 </div>
 
-<script src="app.js?v=16"></script>
+<script src="app.js?v=17"></script>
 </body>
 </html>
