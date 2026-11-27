@@ -427,14 +427,17 @@ function ensurePlayerEntry(pk, name, cls) {
       key: pk,
       name: name || "Jogador",
       cls: cls || "Geral",
+      stageScore: 0,
       score: 0,
       words: [],
       mathSolved: 0,
       eliminated: false
     };
   }
-  if (!activeRoomState.players[pk].key) activeRoomState.players[pk].key = pk;
-  return activeRoomState.players[pk];
+  const p = activeRoomState.players[pk];
+  if (!p.key) p.key = pk;
+  if (p.stageScore === undefined) p.stageScore = Number(p.score || 0);
+  return p;
 }
 
 async function enterRoomByQuickCode() {
@@ -458,7 +461,7 @@ async function enterRoomByQuickCode() {
   } catch (e) {}
 
   if (!roomState) return toast(`Sala ${pin} não encontrada. Verifique o PIN com o professor.`);
-  if (roomState.closed) return toast(`A sala ${pin} está fechada no momento.`);
+  if (roomState.closed) return toast(`A sala ${pin} está encerrada no momento.`);
 
   activeRoomPin = pin;
   activeRoomState = roomState;
@@ -613,14 +616,18 @@ function applyEventToLocalRoom(ev) {
 
   if (ev.event_type === "CLAIM_WORD" && ev.word) {
     if (!pl.eliminated && !activeRoomState.claimedWords[ev.word]) {
-      activeRoomState.claimedWords[ev.word] = { by: pl.name, points: ev.points || 100 };
-      pl.score = Number(pl.score || 0) + Number(ev.points || 100);
+      const pts = Number(ev.points || 100);
+      activeRoomState.claimedWords[ev.word] = { by: pl.name, points: pts };
+      pl.score = Number(pl.score || 0) + pts;
+      pl.stageScore = Number(pl.stageScore || 0) + pts;
       if (!Array.isArray(pl.words)) pl.words = [];
       if (!pl.words.includes(ev.word)) pl.words.push(ev.word);
     }
   } else if (ev.event_type === "MATH_SOLVED") {
     if (!pl.eliminated) {
-      pl.score = Number(pl.score || 0) + Number(ev.points || 60);
+      const pts = Number(ev.points || 60);
+      pl.score = Number(pl.score || 0) + pts;
+      pl.stageScore = Number(pl.stageScore || 0) + pts;
       pl.mathSolved = Number(pl.mathSolved || 0) + 1;
     }
   } else if (ev.event_type === "ADMIN_BONUS_POINTS") {
@@ -628,10 +635,15 @@ function applyEventToLocalRoom(ev) {
     const targetPlayer = activeRoomState.players[targetKey] || pl;
     const addPts = Number(ev.bonus_points ?? ev.points ?? 50);
     targetPlayer.score = Number(targetPlayer.score || 0) + addPts;
+    targetPlayer.stageScore = Number(targetPlayer.stageScore || 0) + addPts;
   } else if (ev.event_type === "ADMIN_REVIVE_PLAYER") {
     const targetKey = ev.target_player_key || pk;
     const targetPlayer = activeRoomState.players[targetKey] || pl;
     targetPlayer.eliminated = false;
+  } else if (ev.event_type === "ADMIN_ELIMINATE_PLAYER") {
+    const targetKey = ev.target_player_key || pk;
+    const targetPlayer = activeRoomState.players[targetKey] || pl;
+    targetPlayer.eliminated = true;
   } else if (ev.event_type === "ADMIN_END_MATCH") {
     activeRoomState.started = false;
     activeRoomState.ended = true;
@@ -643,6 +655,7 @@ function applyEventToLocalRoom(ev) {
     activeRoomState.claimedWords = {};
     Object.values(activeRoomState.players).forEach(p => {
       p.score = 0;
+      p.stageScore = 0;
       p.words = [];
       p.mathSolved = 0;
       p.eliminated = false;
@@ -1076,7 +1089,7 @@ async function loginFromTeacherRoute() {
 
 async function createManagedClassRoom() {
   if (!canAccessTeacherGenerator()) return;
-  const label = String(document.getElementById("newClassLabelInput")?.value || "Turma").trim() || "Turma";
+  const label = String(document.getElementById("newClassLabelInput")?.value || "Turma A").trim() || "Turma A";
   let pin = String(document.getElementById("newClassCustomPinInput")?.value || "").trim().toUpperCase();
   if (!/^[A-Z0-9]{4}$/.test(pin)) {
     const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -1135,16 +1148,6 @@ async function consoleStartMatch() {
   toast("Partida iniciada!");
 }
 
-async function consoleEndMatch() {
-  if (!activeRoomState) return;
-  await persistRoomStatePatch({ started: false, ended: true });
-  await publishRoomEvent({
-    room_pin: activeRoomPin,
-    event_type: "ADMIN_END_MATCH"
-  });
-  toast("Partida encerrada!");
-}
-
 async function consoleNewMatch() {
   if (!activeRoomState) return;
   const nextStoryIdx = ((activeRoomState.storyIdx || 0) + 1) % STORIES.length;
@@ -1165,7 +1168,7 @@ async function consoleNewMatch() {
     room_pin: activeRoomPin,
     event_type: "ADMIN_NEW_MATCH"
   });
-  toast("Nova partida iniciada!");
+  toast("Novo torneio iniciado!");
 }
 
 async function consoleAdvanceStage() {
@@ -1174,7 +1177,10 @@ async function consoleAdvanceStage() {
   const nextStoryIdx = ((activeRoomState.storyIdx || 0) + 1) % STORIES.length;
   const story = STORIES[nextStoryIdx];
   const built = buildWordSearchMatrix(`${activeRoomPin}_s${nextStage}_${Date.now()}`, story.words);
+  Object.values(activeRoomState.players || {}).forEach(p => { p.stageScore = 0; });
   await persistRoomStatePatch({
+    started: true,
+    ended: false,
     stage: nextStage,
     storyIdx: nextStoryIdx,
     claimedWords: {},
@@ -1183,7 +1189,7 @@ async function consoleAdvanceStage() {
   });
   renderTeacherConsole();
   renderAdminRoomInspector();
-  toast(`Fase ${nextStage} iniciada!`);
+  toast(`Fase ${nextStage} iniciada e classificada!`);
 }
 
 async function consoleToggleClose() {
@@ -1193,7 +1199,7 @@ async function consoleToggleClose() {
     room_pin: activeRoomPin,
     event_type: "ADMIN_TOGGLE_ROOM"
   });
-  toast(activeRoomState.closed ? "Sala fechada!" : "Sala reaberta!");
+  toast(activeRoomState.closed ? "Sala encerrada!" : "Sala reaberta!");
 }
 
 async function adminAwardPointsToPlayer(playerKey, bonusPts = 50) {
@@ -1210,7 +1216,7 @@ async function adminAwardPointsToPlayer(playerKey, bonusPts = 50) {
     bonus_points: bonusPts,
     points: bonusPts
   });
-  toast(`+${bonusPts} pts enviados para ${pl.name}!`);
+  toast(`+${bonusPts} pts para ${pl.name}!`);
 }
 
 async function adminRevivePlayer(playerKey) {
@@ -1225,50 +1231,144 @@ async function adminRevivePlayer(playerKey) {
     player_name: pl.name,
     player_class: pl.cls || "Geral"
   });
-  toast(`${pl.name} recolocado de volta no jogo!`);
+  toast(`${pl.name} recolocado na disputa!`);
+}
+
+async function adminEliminatePlayer(playerKey) {
+  if (!activeRoomPin || !activeRoomState) return;
+  const pl = activeRoomState.players?.[playerKey];
+  if (!pl) return;
+  await publishRoomEvent({
+    room_pin: activeRoomPin,
+    event_type: "ADMIN_ELIMINATE_PLAYER",
+    player_key: playerKey,
+    target_player_key: playerKey,
+    player_name: pl.name,
+    player_class: pl.cls || "Geral"
+  });
+  toast(`${pl.name} marcado como eliminado.`);
+}
+
+function exportRoomCsv() {
+  if (!activeRoomState) return;
+  const entries = Object.values(activeRoomState.players || {}).sort((a, b) => (b.score || 0) - (a.score || 0));
+  const lines = ["Posicao,Investigador,Turma,Status,PontosFase,PontosTotal,Palavras,Matematica"];
+  entries.forEach((p, idx) => {
+    lines.push([
+      idx + 1,
+      `"${String(p.name || "").replace(/"/g, '""')}"`,
+      `"${String(p.cls || "Geral").replace(/"/g, '""')}"`,
+      p.eliminated ? "Eliminado" : "Na Disputa",
+      p.stageScore ?? p.score ?? 0,
+      p.score || 0,
+      Array.isArray(p.words) ? p.words.length : 0,
+      p.mathSolved || 0
+    ].join(","));
+  });
+  const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `torneio_${activeRoomState.pin || "sala"}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+  toast("CSV exportado!");
+}
+
+function buildPodiumCardsHtml(entries) {
+  const medals = ["🥇", "🥈", "🥉"];
+  return [0, 1, 2].map(idx => {
+    const p = entries[idx];
+    return `
+      <div class="podium-card-item rank-${idx + 1}">
+        <div class="podium-medal-icon">${medals[idx]}</div>
+        <div class="podium-name-txt">${p ? p.name : "---"}</div>
+        <div class="podium-pts-txt">${p ? `${p.score || 0} pts` : "0 pts"}</div>
+      </div>
+    `;
+  }).join("");
+}
+
+function buildModerationRowsHtml(entries) {
+  return entries.slice(0, 80).map((p, idx) => `
+    <tr>
+      <td><strong>#${idx + 1}</strong></td>
+      <td>
+        <strong>${p.name}</strong>
+        <div style="font-size:0.74rem; color:var(--text-muted);">(${p.cls || "Geral"})</div>
+      </td>
+      <td>
+        ${p.eliminated
+          ? '<span class="status-pill-elim">Eliminado</span>'
+          : '<span class="status-pill-active">Na Disputa</span>'}
+      </td>
+      <td>${p.stageScore ?? p.score ?? 0}</td>
+      <td style="color:var(--gold); font-weight:900;">${p.score || 0}</td>
+      <td>${Array.isArray(p.words) ? p.words.length : 0}</td>
+      <td>${p.mathSolved || 0}</td>
+      <td>
+        <div class="mod-btn-group">
+          <div class="mod-btn-row">
+            <button type="button" class="btn-gold btn-xs" onclick="adminAwardPointsToPlayer('${p.key}', 50)">+50 pts</button>
+            <button type="button" class="btn-success btn-xs" onclick="adminRevivePlayer('${p.key}')">Recolocar</button>
+          </div>
+          <button type="button" class="btn-danger btn-xs" onclick="adminEliminatePlayer('${p.key}')">Eliminar</button>
+        </div>
+      </td>
+    </tr>
+  `).join("");
 }
 
 function renderTeacherConsole() {
   if (!activeRoomState) return;
-  document.getElementById("consolePinDisplay").textContent = activeRoomState.pin;
-  document.getElementById("consoleRoomName").textContent = activeRoomState.roomLabel;
-  document.getElementById("consoleRoomStatus").textContent = activeRoomState.closed
-    ? "Sala Fechada"
-    : (activeRoomState.ended ? "Partida Encerrada" : (activeRoomState.started ? `Em Jogo • Fase ${activeRoomState.stage || 1}` : "Aguardando Início"));
+  const story = STORIES[(activeRoomState.storyIdx || 0) % STORIES.length];
+  const stageNum = activeRoomState.stage || 1;
+  const claimed = activeRoomState.claimedWords || {};
 
-  const btnClose = document.getElementById("btnConsoleToggleRoom");
-  if (btnClose) btnClose.textContent = activeRoomState.closed ? "🔓 Reabrir Sala" : "🔒 Fechar Sala";
+  document.getElementById("consolePinDisplay").textContent = activeRoomState.pin;
+  document.getElementById("consoleRoomName").textContent = activeRoomState.roomLabel || `Sala ${activeRoomState.pin}`;
+  document.getElementById("consoleRoomPhaseTitle").textContent = `Fase ${stageNum} • "${story.title}"`;
 
   const entries = Object.entries(activeRoomState.players || {})
     .map(([k, v]) => ({ key: k, ...v }))
     .sort((a, b) => (b.score || 0) - (a.score || 0));
 
-  document.getElementById("consolePlayersCount").textContent = `${entries.length} jogador(es) na sala`;
+  const activeCount = entries.filter(p => !p.eliminated).length;
+  document.getElementById("consolePlayersCount").textContent = `${activeCount} ativos / ${entries.length} total`;
+
+  const btnClose = document.getElementById("btnConsoleToggleRoom");
+  if (btnClose) btnClose.textContent = activeRoomState.closed ? "🔓 Reabrir Sala" : "🔒 Encerrar Sala";
+
+  const podiumEl = document.getElementById("consolePodiumGrid");
+  if (podiumEl) podiumEl.innerHTML = buildPodiumCardsHtml(entries);
 
   const tbody = document.getElementById("consoleScoreTableBody");
-  if (!tbody) return;
-  if (!entries.length) {
-    tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; color:var(--text-muted);">Nenhum jogador entrou ainda.</td></tr>`;
-    return;
+  if (tbody) {
+    tbody.innerHTML = entries.length
+      ? buildModerationRowsHtml(entries)
+      : `<tr><td colspan="8" style="text-align:center; color:var(--text-muted);">Nenhum jogador na sala ainda.</td></tr>`;
   }
 
-  tbody.innerHTML = entries.slice(0, 80).map((p, idx) => `
-    <tr>
-      <td><strong>#${idx + 1}</strong></td>
-      <td><strong>${p.name}</strong></td>
-      <td>${p.cls || "Geral"}</td>
-      <td>${p.eliminated ? '<span style="color:#fb7185; font-weight:800;">Eliminado</span>' : '<span style="color:#34d399; font-weight:800;">Ativo</span>'}</td>
-      <td style="color:var(--gold); font-weight:900;">${p.score || 0}</td>
-      <td>${Array.isArray(p.words) ? p.words.length : 0}</td>
-      <td>${p.mathSolved || 0}</td>
-      <td>
-        <div class="player-actions-inline">
-          <button type="button" class="btn-gold btn-xs" onclick="adminAwardPointsToPlayer('${p.key}', 50)">+50 pts</button>
-          <button type="button" class="btn-success btn-xs" onclick="adminRevivePlayer('${p.key}')">♻️ Recolocar</button>
-        </div>
-      </td>
-    </tr>
-  `).join("");
+  const evTitle = document.getElementById("consoleEvidenceTitle");
+  if (evTitle) evTitle.textContent = `📋 Evidências da Fase ( ${Object.keys(claimed).length}/${story.words.length} )`;
+
+  const evChips = document.getElementById("consoleEvidenceChips");
+  if (evChips) {
+    evChips.innerHTML = story.words.map(w => {
+      const done = claimed[w.word];
+      if (done) {
+        return `<span class="evidence-chip-btn found-chip" style="background:${CLASS_COLORS[w.cls] || "#38bdf8"};">✅ ${w.display}</span>`;
+      }
+      return `<span class="evidence-chip-btn">🔍 ${w.display}</span>`;
+    }).join("");
+  }
+
+  const legendEl = document.getElementById("consoleGrammarLegend");
+  if (legendEl) {
+    legendEl.innerHTML = GRAMMAR_CLASSES.map(cls =>
+      `<span class="legend-pill-tag" style="background:${CLASS_COLORS[cls]};">${cls}</span>`
+    ).join("");
+  }
 }
 
 async function inspectRoomInConsole(pin) {
@@ -1293,7 +1393,7 @@ async function inspectRoomInConsole(pin) {
     const built = buildWordSearchMatrix(`inspect_${cleanPin}`, STORIES[0].words);
     roomState = {
       pin: cleanPin,
-      roomLabel: `Sala ${cleanPin}`,
+      roomLabel: `Turma ${cleanPin}`,
       started: true,
       ended: false,
       closed: false,
@@ -1318,38 +1418,27 @@ function renderAdminRoomInspector() {
   const box = document.getElementById("adminRoomInspector");
   if (!box || box.classList.contains("hidden") || !activeRoomState) return;
 
+  const story = STORIES[(activeRoomState.storyIdx || 0) % STORIES.length];
   document.getElementById("inspRoomPin").textContent = activeRoomState.pin;
+  document.getElementById("inspRoomTitle").textContent = activeRoomState.roomLabel || `Sala ${activeRoomState.pin}`;
+
   const entries = Object.entries(activeRoomState.players || {})
     .map(([k, v]) => ({ key: k, ...v }))
     .sort((a, b) => (b.score || 0) - (a.score || 0));
 
+  const activeCount = entries.filter(p => !p.eliminated).length;
   document.getElementById("inspRoomMeta").textContent =
-    `${activeRoomState.roomLabel || "Sala"} • ${entries.length} jogador(es) • ${activeRoomState.closed ? "Fechada" : "Aberta"}`;
+    `Fase ${activeRoomState.stage || 1} • "${story.title}" • ${activeCount} ativos / ${entries.length} total • ${activeRoomState.closed ? "Fechada" : "Aberta"}`;
+
+  const podium = document.getElementById("inspPodiumGrid");
+  if (podium) podium.innerHTML = buildPodiumCardsHtml(entries);
 
   const tbody = document.getElementById("inspPlayersBody");
-  if (!tbody) return;
-  if (!entries.length) {
-    tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; color:var(--text-muted);">Nenhum jogador registrado nesta sala.</td></tr>`;
-    return;
+  if (tbody) {
+    tbody.innerHTML = entries.length
+      ? buildModerationRowsHtml(entries)
+      : `<tr><td colspan="8" style="text-align:center; color:var(--text-muted);">Nenhum jogador registrado nesta sala.</td></tr>`;
   }
-
-  tbody.innerHTML = entries.map((p, idx) => `
-    <tr>
-      <td><strong>#${idx + 1}</strong></td>
-      <td><strong>${p.name}</strong></td>
-      <td>${p.cls || "Geral"}</td>
-      <td>${p.eliminated ? '<span style="color:#fb7185; font-weight:800;">Eliminado</span>' : '<span style="color:#34d399; font-weight:800;">Ativo</span>'}</td>
-      <td style="color:var(--gold); font-weight:900;">${p.score || 0}</td>
-      <td>${Array.isArray(p.words) ? p.words.length : 0}</td>
-      <td>${p.mathSolved || 0}</td>
-      <td>
-        <div class="player-actions-inline">
-          <button type="button" class="btn-gold btn-xs" onclick="adminAwardPointsToPlayer('${p.key}', 50)">+50 pts</button>
-          <button type="button" class="btn-success btn-xs" onclick="adminRevivePlayer('${p.key}')">♻️ Recolocar</button>
-        </div>
-      </td>
-    </tr>
-  `).join("");
 }
 
 async function refreshControlPanel() {
@@ -1371,11 +1460,14 @@ async function refreshControlPanel() {
     ? moderatorsEmails.map(em => `<span class="mod-chip">👮 ${em}</span>`).join("")
     : `<span style="font-size:0.8rem; color:var(--text-muted);">Nenhum moderador cadastrado.</span>`;
 
+  const profilesById = new Map();
   try {
-    const uRes = await fetch(`${SUPABASE_URL}/rest/v1/profiles?select=*&limit=100`, { cache: "no-store", headers: getHeaders(false) });
+    const uRes = await fetch(`${SUPABASE_URL}/rest/v1/profiles?select=*&limit=200`, { cache: "no-store", headers: getHeaders(false) });
     const users = uRes.ok ? await uRes.json().catch(() => []) : [];
-    document.getElementById("ctrlKpiUsers").textContent = String(Array.isArray(users) ? users.length : 0);
-    document.getElementById("ctrlUsersBody").innerHTML = (Array.isArray(users) ? users : []).map(u => `
+    const listUsers = Array.isArray(users) ? users : [];
+    listUsers.forEach(u => { if (u.id) profilesById.set(u.id, u.full_name || u.email || "Professor"); });
+    document.getElementById("ctrlKpiUsers").textContent = String(listUsers.length);
+    document.getElementById("ctrlUsersBody").innerHTML = listUsers.map(u => `
       <tr>
         <td><strong>${u.full_name || "Usuário"}</strong><div style="font-size:0.75rem; color:var(--text-muted);">${u.email || ""}</div></td>
         <td>${u.role || "teacher"}</td>
@@ -1390,22 +1482,23 @@ async function refreshControlPanel() {
     DEFAULT_24H_ROOMS.forEach(rm => {
       roomMap.set(rm.pin, {
         pin: rm.pin,
-        label: rm.label,
+        label: `${rm.label} (24h)`,
         mode: "24h",
         closed: false,
         playersCount: 0
       });
     });
 
-    const rRes = await fetch(`${SUPABASE_URL}/rest/v1/salas?select=pin,state&limit=100`, { cache: "no-store", headers: { "apikey": SUPABASE_KEY } });
+    const rRes = await fetch(`${SUPABASE_URL}/rest/v1/salas?select=pin,owner_id,state&limit=200`, { cache: "no-store", headers: { "apikey": SUPABASE_KEY } });
     const rooms = rRes.ok ? await rRes.json().catch(() => []) : [];
     if (Array.isArray(rooms)) {
       rooms.forEach(r => {
+        const ownerName = r.owner_id && profilesById.get(r.owner_id) ? ` • ${profilesById.get(r.owner_id)}` : "";
         const pCount = Object.keys(r.state?.players || {}).length;
         roomMap.set(r.pin, {
           pin: r.pin,
-          label: r.state?.roomLabel || `Sala ${r.pin}`,
-          mode: r.state?.is24h ? "24h" : "Professor",
+          label: `${r.state?.roomLabel || `Sala ${r.pin}`}${ownerName}`,
+          mode: r.state?.is24h ? "24h" : "Turma",
           closed: !!r.state?.closed,
           playersCount: pCount
         });
@@ -1447,9 +1540,9 @@ async function refreshControlPanel() {
         <td>${r.label}</td>
         <td>${r.mode}</td>
         <td><strong>${r.playersCount}</strong></td>
-        <td>${r.closed ? "Fechada" : "Aberta"}</td>
+        <td>${r.closed ? "Encerrada" : "Aberta"}</td>
         <td>
-          <div class="player-actions-inline">
+          <div class="mod-btn-row">
             <button type="button" class="btn-primary btn-xs" onclick="inspectRoomInConsole('${r.pin}')">👁️ Abrir Sala</button>
             ${isMaster ? `<button type="button" class="btn-danger btn-xs" onclick="controlDeleteRoom('${r.pin}')">Excluir</button>` : ""}
           </div>
