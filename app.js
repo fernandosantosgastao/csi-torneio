@@ -254,6 +254,39 @@ let botLastMilestone = 0;
 let lastBuiltBotGridKey = "";
 let adminFilteredCandidates = [];
 
+function openRoleGateway() {
+  const gateway = document.getElementById("roleGatewayBox");
+  const studentWrap = document.getElementById("studentPortalWrapper");
+  const teacherWrap = document.getElementById("teacherPortalWrapper");
+  if (gateway) gateway.classList.remove("hidden");
+  if (studentWrap) studentWrap.classList.add("hidden");
+  if (teacherWrap) teacherWrap.classList.add("hidden");
+}
+
+function selectLobbyRole(role) {
+  const gateway = document.getElementById("roleGatewayBox");
+  const studentWrap = document.getElementById("studentPortalWrapper");
+  const teacherWrap = document.getElementById("teacherPortalWrapper");
+  if (gateway) gateway.classList.add("hidden");
+
+  if (role === "student") {
+    if (studentWrap) studentWrap.classList.remove("hidden");
+    if (teacherWrap) teacherWrap.classList.add("hidden");
+    const pinInput = document.getElementById("inputPin");
+    if (pinInput) pinInput.focus();
+  } else if (role === "teacher") {
+    if (teacherWrap) teacherWrap.classList.remove("hidden");
+    if (studentWrap) studentWrap.classList.add("hidden");
+    const emailInput = document.getElementById("authEmail");
+    if (emailInput && !emailInput.closest("#teacherAuthBox")?.classList.contains("hidden")) {
+      emailInput.focus();
+    }
+  }
+}
+
+window.openRoleGateway = openRoleGateway;
+window.selectLobbyRole = selectLobbyRole;
+
 function showToast(msg) {
   const t = document.createElement("div");
   t.className = "toast";
@@ -1029,9 +1062,7 @@ function resetToLobby() {
   document.getElementById("viewBotTest").classList.add("hidden");
   document.getElementById("btnExitRoom").classList.add("hidden");
   document.getElementById("viewLobby").classList.remove("hidden");
-  if (typeof window.openRoleGateway === "function") {
-    window.openRoleGateway();
-  }
+  openRoleGateway();
   setNetStatus("online", "Nuvem Pronta");
 }
 
@@ -1463,7 +1494,6 @@ async function createTeacherRoom(resumePin = null, resumeLabel = null) {
     return;
   }
 
-  await syncCloudStoriesBank().catch(() => {});
   STORY_BANK = loadStoryBank();
   roomPin = resumePin || generatePin();
   isAdvancingStage = false;
@@ -1807,9 +1837,7 @@ function leaveClosedRoomToJoinScreen(toastMsg = "🔒 A sala foi encerrada pelo 
   };
   hideAllStudentModals();
   resetToLobby();
-  if (typeof window.selectLobbyRole === "function") {
-    window.selectLobbyRole("student");
-  }
+  selectLobbyRole("student");
   const pinInput = document.getElementById("inputPin");
   if (pinInput) {
     pinInput.value = "";
@@ -2692,6 +2720,7 @@ let startCell = null;
 let currentSelection = [];
 
 function attachGridPointerEvents(gridElement, isBotGrid) {
+  if (!gridElement) return;
   gridElement.addEventListener("pointerdown", (e) => {
     e.preventDefault();
     if (isRecompLocked) {
@@ -2993,12 +3022,6 @@ async function bootApp() {
   renderRoomHistoryPanel();
   renderDeletedRoomsFolder();
   bindGlobalLifecycleListeners();
-
-  Promise.all([
-    syncCloudStoriesBank().catch(() => {}),
-    fetchGlobalBotTestFlag().catch(() => {}),
-    loadBestPlayersRanking().catch(() => {})
-  ]);
 
   try {
     const savedAuth = localStorage.getItem("csi_teacher_auth");
