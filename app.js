@@ -844,15 +844,37 @@ function buildNextStageStateFromCurrent(current) {
     };
   }
 
-  const keepCount = Math.max(3, Math.ceil(competingEntries.length / 2));
+  const keepCount = competingEntries.length === 4
+    ? 3
+    : Math.max(3, Math.ceil(competingEntries.length / 2));
+
+  const eliminateTailCount = competingEntries.length > 5
+    ? Math.max(1, Math.floor((competingEntries.length - keepCount) / 2))
+    : 0;
+
   competingEntries.forEach(([_, p], index) => {
+    const wasRepechage = p.status === "repechage";
     if (index < keepCount) {
       p.status = "active";
+    } else if (wasRepechage || index >= competingEntries.length - eliminateTailCount) {
+      p.status = "eliminated";
     } else {
       p.status = "repechage";
     }
     p.stageScore = 0;
   });
+
+  const remainingAfterCut = Object.values(playersMap).filter(
+    p => p && (p.status === "active" || p.status === "repechage")
+  );
+  if (remainingAfterCut.length <= 3) {
+    remainingAfterCut.forEach(p => { p.status = "active"; });
+    return {
+      ...current,
+      finished: true,
+      v: (current.v || 1) + 1
+    };
+  }
 
   const nextStage = (current.stage || 1) + 1;
   let nextStoryIdx = Math.floor(Math.random() * STORY_BANK.length);
@@ -2252,7 +2274,9 @@ async function advanceTournamentStage() {
     if (gameState.finished) {
       showToast("🏆 TORNEIO FINALIZADO! O vencedor foi definido!");
     } else {
-      const keepCount = Math.max(3, Math.ceil(competingPlayers.length / 2));
+      const keepCount = competingPlayers.length === 4
+        ? 3
+        : Math.max(3, Math.ceil(competingPlayers.length / 2));
       showToast(`⚔️ Fase ${gameState.stage} iniciada! Classificados na frente e demais na Repescagem (top ${keepCount})!`);
     }
   } finally {
