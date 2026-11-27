@@ -1195,15 +1195,31 @@ function stopMatchMathTimerLoop() {
   }
 }
 
+function refreshMathCountdownBadge() {
+  if (isBotModeActive) {
+    const el = document.getElementById("botMathGateIndicator");
+    if (el && !isRecompLocked && !isStageTransitionMath && !isMathLocked) {
+      el.textContent = `🧮 Próx. Mat. em ${formatRemainingToNextMathMMSS()}`;
+    }
+    return;
+  }
+  const el = document.getElementById("mathGateIndicator");
+  if (el && gameState.started && !isRecompLocked && !isStageTransitionMath && !isMathLocked) {
+    el.textContent = `🧮 Próx. Mat. em ${formatRemainingToNextMathMMSS()}`;
+  }
+}
+
 function startMatchMathTimerLoop() {
   stopMatchMathTimerLoop();
+  refreshMathCountdownBadge();
   mathTimerInterval = setInterval(() => {
+    refreshMathCountdownBadge();
     if (isBotModeActive) {
       triggerBotModeMathIfNeeded();
     } else {
       checkTimedMathGateTrigger();
     }
-  }, 5000);
+  }, 1000);
 }
 
 function resetToLobby() {
@@ -2526,7 +2542,7 @@ function renderBotTestUI(forceRebuild = false) {
     ? "🛠️ Em Recomposição!"
     : (isStageTransitionMath
       ? `🧮 Troca de Fase (${stageMathTotalQuestions - stageMathRemainingQuestions + 1}/${stageMathTotalQuestions})`
-      : (isMathLocked ? "🔒 Desafio Matemático!" : `⏱️ Próx. Mat.: ${formatRemainingToNextMathMMSS()}`));
+      : (isMathLocked ? "🔒 Desafio Matemático!" : `🧮 Próx. Mat. em ${formatRemainingToNextMathMMSS()}`));
 
   const botsSorted = botPlayers.filter(p => !p.isHuman).sort((a, b) => b.score - a.score);
   const topBotScore = botsSorted.length > 0 ? botsSorted[0].score : 0;
@@ -3433,7 +3449,7 @@ function renderStudentGame(forceRebuildGrid = false) {
       ? "🛠️ Em Recomposição!"
       : (isStageTransitionMath
         ? `🧮 Troca de Fase (${stageMathTotalQuestions - stageMathRemainingQuestions + 1}/${stageMathTotalQuestions})`
-        : (isMathLocked ? "🔒 Desafio Matemático!" : `⏱️ Próx. Mat.: ${formatRemainingToNextMathMMSS()}`));
+        : (isMathLocked ? "🔒 Desafio Matemático!" : `🧮 Próx. Mat. em ${formatRemainingToNextMathMMSS()}`));
 
   document.getElementById("studentRemaining").textContent = Math.max(0, story.words.length - totalClaimedInRoom);
 
