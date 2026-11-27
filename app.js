@@ -590,7 +590,6 @@ let activeRealtimeChannel = null;
 let roomChannelReady = false;
 let teacherSaveDebounceTimer = null;
 
-// --- Histórico de salas, fechamento/reabertura e bônus de sequência ---
 let roomHistoryEntries = [];
 let playerStreak = 0;
 
@@ -828,7 +827,6 @@ async function flushTeacherRoomSaveNow() {
   return await dbSaveRoom(roomPin, gameState, false);
 }
 
-// Persiste diretamente no Supabase a ação do aluno para que funcione mesmo sem o portal do professor aberto
 async function persistStudentActionDirectlyToRoom(msg) {
   if (!roomPin || !msg || !msg.name) return;
   const lookup = await dbGetRoom(roomPin, false);
@@ -1514,6 +1512,8 @@ function resetToLobby() {
   playerStreak = 0;
   document.body.classList.remove("pseudo-fullscreen");
   document.body.classList.remove("focus-wordsearch-mode");
+  const fab = document.getElementById("btnExitFocusFab");
+  if (fab) fab.classList.add("hidden");
   document.getElementById("viewTeacher").classList.add("hidden");
   document.getElementById("viewStudent").classList.add("hidden");
   document.getElementById("viewBotTest").classList.add("hidden");
@@ -1530,13 +1530,15 @@ function toggleFullscreen() {
   const isPseudoFs = document.body.classList.contains("pseudo-fullscreen");
   const isNativeFs = document.fullscreenElement || document.webkitFullscreenElement;
   const playingWordsearch =
-    !document.getElementById("viewStudent").classList.contains("hidden") && gameState.started ||
+    (!document.getElementById("viewStudent").classList.contains("hidden") && gameState.started) ||
     !document.getElementById("viewBotTest").classList.contains("hidden");
 
   if (!isPseudoFs) {
     document.body.classList.add("pseudo-fullscreen");
     if (playingWordsearch) {
       document.body.classList.add("focus-wordsearch-mode");
+      const fab = document.getElementById("btnExitFocusFab");
+      if (fab) fab.classList.remove("hidden");
     }
     if (!isNativeFs) {
       if (docEl.requestFullscreen) {
@@ -1545,10 +1547,12 @@ function toggleFullscreen() {
         try { docEl.webkitRequestFullscreen(); } catch (e) {}
       }
     }
-    showToast(playingWordsearch ? "Modo foco do caça-palavras ativado" : "Tela cheia ativada");
+    showToast(playingWordsearch ? "Modo foco: grade ampliada para jogar!" : "Tela cheia ativada");
   } else {
     document.body.classList.remove("pseudo-fullscreen");
     document.body.classList.remove("focus-wordsearch-mode");
+    const fab = document.getElementById("btnExitFocusFab");
+    if (fab) fab.classList.add("hidden");
     if (isNativeFs) {
       if (document.exitFullscreen) {
         document.exitFullscreen().catch(() => {});
@@ -2356,7 +2360,6 @@ function exportCSV() {
 function reconcileRemoteStudentRoomState(remote) {
   if (!remote) return;
 
-  // Se o professor fechou a sala, expulsa todos os alunos imediatamente para a tela inicial
   if (remote.closed) {
     clearSessionState();
     resetToLobby();
@@ -2374,7 +2377,10 @@ function reconcileRemoteStudentRoomState(remote) {
     lastTriggeredGlobalMilestone = 0;
     isMathLocked = false;
     isRecompLocked = false;
-    if (recompTimerInterval) clearInterval(recompTimerInterval);
+    if (recompTimerInterval) {
+      clearInterval(recompTimerInterval);
+      recompTimerInterval = null;
+    }
     repStep = 0;
     closeQuizModal();
     document.getElementById("mathModal").classList.add("hidden");
@@ -2401,7 +2407,10 @@ function reconcileRemoteStudentRoomState(remote) {
     lastTriggeredGlobalMilestone = 0;
     isMathLocked = false;
     isRecompLocked = false;
-    if (recompTimerInterval) clearInterval(recompTimerInterval);
+    if (recompTimerInterval) {
+      clearInterval(recompTimerInterval);
+      recompTimerInterval = null;
+    }
     repStep = 0;
     isDragging = false;
     clearAllSelectionVisuals();
@@ -2482,7 +2491,10 @@ async function joinAsStudent(savedSession = null) {
   solvedMathCount = savedSession ? (savedSession.solvedMathCount || 0) : 0;
   isMathLocked = false;
   isRecompLocked = false;
-  if (recompTimerInterval) clearInterval(recompTimerInterval);
+  if (recompTimerInterval) {
+    clearInterval(recompTimerInterval);
+    recompTimerInterval = null;
+  }
   repStep = savedSession ? (savedSession.repStep || 0) : 0;
   lastBuiltGridKey = "";
 
@@ -2846,15 +2858,43 @@ function formatSecondsMMSS(totalSec) {
   return `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
 }
 
+function ensureRecompCountdownLoop() {
+  if (recompTimerInterval) return;
+  recompTimerInterval = setInterval(() => {
+    if (!isRecompLocked) {
+      clearInterval(recompTimerInterval);
+      recompTimerInterval = null;
+      return;
+    }
+    recompSecondsLeft = Math.max(0, recompSecondsLeft - 1);
+    const displayEl = document.getElementById("recompTimerDisplay");
+    if (displayEl) displayEl.textContent = formatSecondsMMSS(recompSecondsLeft);
+
+    const timerAreaVisible = !document.getElementById("recompTimerArea")?.classList.contains("hidden");
+    if (timerAreaVisible) {
+      document.getElementById("recompModeBadge").textContent = `ESPERA: ${formatSecondsMMSS(recompSecondsLeft)}`;
+    }
+
+    if (recompSecondsLeft <= 0) {
+      clearInterval(recompTimerInterval);
+      recompTimerInterval = null;
+      finishRecomposition("⏳ Tempo de 2 minutos concluído! Tabuleiro liberado.");
+    }
+  }, 1000);
+}
+
 function openRecompositionModal() {
   isRecompLocked = true;
   isDragging = false;
   clearAllSelectionVisuals();
+  recompSecondsLeft = 120;
   recompMathProgress = 0;
   recompMathErrors = 0;
   currentRecompMathQuestion = null;
 
+  document.getElementById("recompTimerDisplay").textContent = formatSecondsMMSS(recompSecondsLeft);
   document.getElementById("recompositionModal").classList.remove("hidden");
+  ensureRecompCountdownLoop();
   activateRecompTimer();
 
   if (isBotModeActive) renderBotTestUI(false);
@@ -2862,30 +2902,15 @@ function openRecompositionModal() {
 }
 
 function activateRecompTimer() {
-  if (recompTimerInterval) clearInterval(recompTimerInterval);
-  recompSecondsLeft = 120;
-  document.getElementById("recompModeBadge").textContent = "ESPERA: 02:00";
+  ensureRecompCountdownLoop();
+  document.getElementById("recompModeBadge").textContent = `ESPERA: ${formatSecondsMMSS(recompSecondsLeft)}`;
+  document.getElementById("recompTimerDisplay").textContent = formatSecondsMMSS(recompSecondsLeft);
   document.getElementById("recompTimerArea").classList.remove("hidden");
   document.getElementById("recompMathArea").classList.add("hidden");
-  document.getElementById("recompTimerDisplay").textContent = formatSecondsMMSS(recompSecondsLeft);
-
-  recompTimerInterval = setInterval(() => {
-    recompSecondsLeft--;
-    if (recompSecondsLeft <= 0) {
-      clearInterval(recompTimerInterval);
-      recompTimerInterval = null;
-      finishRecomposition("⏳ Tempo de 2 minutos concluído! Tabuleiro liberado.");
-    } else {
-      document.getElementById("recompTimerDisplay").textContent = formatSecondsMMSS(recompSecondsLeft);
-    }
-  }, 1000);
 }
 
 function activateRecompMath3() {
-  if (recompTimerInterval) {
-    clearInterval(recompTimerInterval);
-    recompTimerInterval = null;
-  }
+  ensureRecompCountdownLoop();
   recompMathProgress = 0;
   recompMathErrors = 0;
   document.getElementById("recompTimerArea").classList.add("hidden");
@@ -2965,6 +2990,7 @@ function finishRecomposition(toastMessage) {
     recompTimerInterval = null;
   }
   isRecompLocked = false;
+  recompSecondsLeft = 120;
   recompMathProgress = 0;
   recompMathErrors = 0;
   currentRecompMathQuestion = null;
