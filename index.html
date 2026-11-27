@@ -9,6 +9,10 @@
   <link rel="stylesheet" href="style.css">
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <style>
+    body.login-gate-active header {
+      display: none;
+    }
+
     .nav-pills {
       display: flex;
       align-items: center;
@@ -41,7 +45,6 @@
       color: #f3e8ff;
     }
 
-    /* TELA DE ENTRADA / LOGIN ESTILO DUO (RESPONSIVA: MOBILE, TABLET, WEB, APP) */
     .duo-gate-card {
       background: linear-gradient(145deg, rgba(13, 37, 79, 0.95), rgba(6, 20, 46, 0.98));
       border: 1.5px solid rgba(56, 189, 248, 0.35);
@@ -378,11 +381,9 @@
 
 <div class="container">
 
-  <!-- TELA DE ENTRADA / LOGIN (ANTES DA HOME) -->
   <section id="routeLoginGate" class="route-view">
     <div class="duo-gate-card">
       <div class="mascot-stage">
-        <!-- APENAS UM PERSONAGEM DO SITE: DETETIVE CSI -->
         <svg class="mascot-svg" viewBox="0 0 220 230" fill="none" xmlns="http://www.w3.org/2000/svg" aria-label="Detetive CSI">
           <ellipse cx="110" cy="212" rx="58" ry="12" fill="rgba(56,189,248,0.22)"/>
           <path d="M56 196C56 164 78 144 110 144C142 144 164 164 164 196V204H56V196Z" fill="#0f2b5c" stroke="#38bdf8" stroke-width="3"/>
@@ -425,7 +426,6 @@
           </button>
         </div>
 
-        <!-- GAVETA RÁPIDA: ENTRAR COM CÓDIGO (SEM CONTA) -->
         <div id="gateQuickCodeBox" class="duo-auth-drawer hidden">
           <div style="font-weight:900; color:var(--success); font-size:0.92rem; margin-bottom:8px;">🎮 Entrar com Código (Sem Conta)</div>
           <div class="form-group">
@@ -443,7 +443,6 @@
           <button type="button" class="btn-success" style="width:100%;" onclick="submitGateQuickCode()">Entrar na Sala Agora</button>
         </div>
 
-        <!-- GAVETA RÁPIDA: FAZER LOGIN / CRIAR CONTA -->
         <div id="gateAccountBox" class="duo-auth-drawer hidden">
           <div id="gateAccountTitle" style="font-weight:900; color:var(--accent); font-size:0.92rem; margin-bottom:8px;">🔐 Fazer Login</div>
           <div class="form-group">
@@ -460,7 +459,6 @@
     </div>
   </section>
 
-  <!-- ROTA 1: HOME (/) -->
   <section id="routeHome" class="route-view hidden">
     <div class="hero-panel">
       <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
@@ -531,11 +529,10 @@
     </div>
   </section>
 
-  <!-- ROTA 2: SALAS ONLINE 24H (/salas-online) -->
   <section id="routeSalasOnline" class="route-view hidden">
     <div id="salas24hAuthGate" class="card card-student" style="max-width:520px; margin:0 auto 20px auto;">
       <h2>🔐 Login Necessário para Salas 24h</h2>
-      <p>Para jogar nas salas online 24h fora da escola, entre com sua conta. Na escola, você pode usar <strong>Entrar com Código</strong> sem conta.</p>
+      <p>Para jogar nas salas online 24h fora da escola, entre com sua conta. Na escola, você pode usar <strong>Entrar com Código</strong> na Home sem conta.</p>
       <div class="form-group">
         <label>E-mail</label>
         <input type="email" id="salas24hEmail" placeholder="seuemail@exemplo.com">
@@ -573,7 +570,6 @@
     </div>
   </section>
 
-  <!-- ARENA DE JOGO ATIVA -->
   <section id="activeArenaSection" class="hidden" style="margin-top:16px;">
     <div class="room-banner" style="padding:12px 18px;">
       <div>
@@ -611,7 +607,6 @@
     </div>
   </section>
 
-  <!-- ROTA 3: PORTAL DO PROFESSOR (/gerador-de-salas) -->
   <section id="routeCreateClass" class="route-view hidden">
     <div id="teacherLoginCard" class="card card-teacher" style="max-width:520px; margin:0 auto;">
       <h2>🧑‍🏫 Portal do Professor</h2>
@@ -726,7 +721,6 @@
     </div>
   </section>
 
-  <!-- ROTA 4: PAINEL DE CONTROLE (/painel-de-controle) -->
   <section id="routeControlPanel" class="route-view hidden">
     <div class="hero-panel" style="border-color: rgba(192, 132, 252, 0.55);">
       <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
@@ -875,7 +869,6 @@
 
 </div>
 
-<!-- MODAL DE CLASSIFICAÇÃO GRAMATICAL -->
 <div id="grammarQuizModal" class="modal-backdrop hidden">
   <div class="modal-card">
     <div style="font-size:0.8rem; color:var(--gold); font-weight:800;">⚡ PALAVRA ENCONTRADA</div>
@@ -887,7 +880,6 @@
   </div>
 </div>
 
-<!-- MODAL DE QUESTÃO DE MATEMÁTICA A CADA 2 MINUTOS -->
 <div id="twoMinMathModal" class="modal-backdrop hidden">
   <div class="modal-card math-lock">
     <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -900,6 +892,6 @@
   </div>
 </div>
 
-<script src="app.js?v=19"></script>
+<script src="app.js?v=20"></script>
 </body>
 </html>
