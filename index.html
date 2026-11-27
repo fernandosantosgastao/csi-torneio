@@ -14,47 +14,11 @@
   <link rel="stylesheet" href="style.css">
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <style>
-    body {
-      background-color: #050f24;
-      background-image:
-        radial-gradient(circle at 15% 18%, rgba(56, 189, 248, 0.24) 0%, transparent 42%),
-        radial-gradient(circle at 85% 15%, rgba(37, 99, 235, 0.28) 0%, transparent 45%),
-        radial-gradient(circle at 50% 88%, rgba(14, 165, 233, 0.18) 0%, transparent 50%),
-        linear-gradient(160deg, #06132b 0%, #091d42 52%, #051026 100%);
-      background-attachment: fixed;
-      color: #f8fafc;
-      position: relative;
-      overflow-x: hidden;
-    }
-
-    body::before {
-      content: "";
-      position: fixed;
-      inset: 0;
-      pointer-events: none;
-      z-index: 0;
-      background-image:
-        radial-gradient(rgba(125, 211, 252, 0.22) 1.25px, transparent 1.25px),
-        radial-gradient(rgba(250, 204, 21, 0.14) 1px, transparent 1px);
-      background-size: 36px 36px, 72px 72px;
-      background-position: 0 0, 18px 24px;
-      opacity: 0.7;
-    }
-
-    header,
-    .container,
-    .modal-backdrop,
-    footer.site-footer,
-    .confetti-layer {
-      position: relative;
-      z-index: 1;
-    }
-
     .role-gateway {
       max-width: 820px;
       margin: 18px auto 28px auto;
       text-align: center;
-      background: linear-gradient(145deg, rgba(13, 37, 79, 0.86), rgba(7, 22, 51, 0.92));
+      background: linear-gradient(145deg, rgba(13, 37, 79, 0.88), rgba(7, 22, 51, 0.94));
       border: 1.5px solid rgba(56, 189, 248, 0.35);
       border-radius: 24px;
       padding: 32px 24px;
@@ -163,21 +127,20 @@
       gap: 10px;
     }
 
-    /* MODO FOCO: SÓ GRADE DO CAÇA-PALAVRAS + PALAVRAS A ENCONTRAR */
     .exit-focus-fab {
       position: fixed;
       top: 12px;
       right: 12px;
-      z-index: 9999;
+      z-index: 2147483640;
       padding: 8px 14px;
       border-radius: 999px;
-      background: rgba(15, 23, 42, 0.92);
+      background: rgba(15, 23, 42, 0.94);
       border: 1.5px solid #38bdf8;
       color: #f8fafc;
       font-weight: 800;
       font-size: 0.82rem;
       cursor: pointer;
-      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.55);
     }
 
     body.focus-wordsearch-mode header,
@@ -195,39 +158,6 @@
     body.focus-wordsearch-mode #botGameArea .card:first-child > .legend-bar {
       display: none !important;
     }
-
-    body.focus-wordsearch-mode .container {
-      max-width: 100% !important;
-      width: 100% !important;
-      padding: 46px 10px 14px 10px !important;
-      margin: 0 !important;
-    }
-
-    body.focus-wordsearch-mode .game-layout {
-      display: flex !important;
-      flex-direction: column-reverse !important;
-      gap: 12px !important;
-      align-items: center !important;
-    }
-
-    body.focus-wordsearch-mode .game-layout .card {
-      width: 100% !important;
-      max-width: 680px !important;
-      margin: 0 auto !important;
-      padding: 12px !important;
-    }
-
-    body.focus-wordsearch-mode .grid-wrapper {
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      width: 100%;
-    }
-
-    body.focus-wordsearch-mode .ws-grid {
-      width: min(88vw, 68vh, 520px) !important;
-      height: min(88vw, 68vh, 520px) !important;
-    }
   </style>
 </head>
 <body>
@@ -237,7 +167,7 @@
   const SUPABASE_KEY = "sb_publishable_XvY-BRmqI19BNPevoPUMLQ_UZoGHnam";
 </script>
 
-<button type="button" id="btnExitFocusFab" class="exit-focus-fab hidden" onclick="exitFocusMode()">✕ Sair da Tela Cheia</button>
+<button type="button" id="btnExitFocusFab" class="exit-focus-fab hidden" onclick="toggleFullscreen()">✕ Sair da Tela Cheia</button>
 
 <div class="confetti-layer hidden" id="confettiLayer"></div>
 
@@ -247,7 +177,7 @@
   </div>
   <div class="header-actions">
     <div class="badge-status"><span class="dot online" id="netDot"></span> <span id="netText">Nuvem Pronta</span></div>
-    <button type="button" class="btn-ghost btn-sm" id="btnFullscreen" onclick="enterFocusAndFullscreen()">⛶ Tela Cheia</button>
+    <button type="button" class="btn-ghost btn-sm" id="btnFullscreen" onclick="toggleFullscreen()">⛶ Tela Cheia</button>
     <button type="button" class="btn-ghost btn-sm hidden" id="btnExitRoom" onclick="exitAndClearSession()">Sair</button>
   </div>
 </header>
@@ -287,7 +217,7 @@
       </div>
     </div>
 
-    <!-- 2. PORTAL DO ALUNO (ABRE AO CLICAR EM "SOU ALUNO") -->
+    <!-- 2. PORTAL DO ALUNO -->
     <div id="studentPortalWrapper" class="single-portal-wrap hidden">
       <div class="portal-topbar">
         <button type="button" class="btn-ghost btn-sm" onclick="openRoleGateway()">← Voltar à tela inicial</button>
@@ -317,7 +247,7 @@
       </div>
     </div>
 
-    <!-- 3. ÁREA DO PROFESSOR (ABRE AO CLICAR EM "SOU PROFESSOR") -->
+    <!-- 3. ÁREA DO PROFESSOR -->
     <div id="teacherPortalWrapper" class="single-portal-wrap hidden">
       <div class="portal-topbar">
         <button type="button" class="btn-ghost btn-sm" onclick="openRoleGateway()">← Voltar à tela inicial</button>
@@ -748,36 +678,6 @@
     }
   }
 
-  function enterFocusAndFullscreen() {
-    document.body.classList.add("focus-wordsearch-mode");
-    const fab = document.getElementById("btnExitFocusFab");
-    if (fab) fab.classList.remove("hidden");
-
-    const el = document.documentElement;
-    const reqFs = el.requestFullscreen || el.webkitRequestFullscreen || el.msRequestFullscreen;
-    if (reqFs && !document.fullscreenElement && !document.webkitFullscreenElement) {
-      try {
-        const res = reqFs.call(el);
-        if (res && typeof res.catch === "function") res.catch(() => {});
-      } catch (_) {}
-    }
-  }
-
-  function exitFocusMode() {
-    document.body.classList.remove("focus-wordsearch-mode");
-    document.body.classList.remove("pseudo-fullscreen");
-    const fab = document.getElementById("btnExitFocusFab");
-    if (fab) fab.classList.add("hidden");
-
-    const exitFs = document.exitFullscreen || document.webkitExitFullscreen || document.msExitFullscreen;
-    if (exitFs && (document.fullscreenElement || document.webkitFullscreenElement)) {
-      try {
-        const res = exitFs.call(document);
-        if (res && typeof res.catch === "function") res.catch(() => {});
-      } catch (_) {}
-    }
-  }
-
   document.addEventListener("DOMContentLoaded", () => {
     const loggedBox = document.getElementById("teacherLoggedBox");
     if (loggedBox) {
@@ -793,7 +693,7 @@
 
     document.addEventListener("fullscreenchange", () => {
       if (!document.fullscreenElement && document.body.classList.contains("focus-wordsearch-mode")) {
-        exitFocusMode();
+        toggleFullscreen();
       }
     });
   });
