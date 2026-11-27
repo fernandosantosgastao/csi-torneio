@@ -322,6 +322,7 @@ async function loadPlatformState() {
     }
   } catch (e) {}
 
+  moderatorsEmails = [];
   try {
     if (authSession?.access_token) {
       const modRes = await fetch(`${SUPABASE_URL}/rest/v1/moderators?select=email`, {
@@ -1468,6 +1469,55 @@ function renderAdminRoomInspector() {
   }
 }
 
+async function controlRemoveModerator(email) {
+  if (!isAdminUser()) return toast("Apenas Master Admin pode remover moderadores.");
+  const targetEmail = String(email || "").trim().toLowerCase();
+  if (!targetEmail) return;
+  if (!window.confirm(`Remover ${targetEmail} da lista de moderadores?`)) return;
+
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/moderators?email=eq.${encodeURIComponent(targetEmail)}`, {
+    method: "DELETE",
+    headers: getHeaders(false)
+  });
+
+  if (!res.ok) {
+    const errTxt = await res.text().catch(() => "");
+    return toast(`Não foi possível remover moderador: ${errTxt || res.status}`);
+  }
+
+  moderatorsEmails = moderatorsEmails.filter(em => em !== targetEmail);
+  await loadPlatformState();
+  await refreshControlPanel();
+  toast(`${targetEmail} removido dos moderadores.`);
+}
+
+async function controlChangeUserRole(userId, email, nextRole) {
+  if (!isAdminUser()) return toast("Apenas Master Admin pode alterar cargos.");
+  if (!userId || !nextRole) return;
+
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/profiles?id=eq.${encodeURIComponent(userId)}`, {
+    method: "PATCH",
+    headers: { ...getHeaders(true), "Prefer": "return=minimal" },
+    body: JSON.stringify({ role: nextRole })
+  });
+
+  if (!res.ok) {
+    const errTxt = await res.text().catch(() => "");
+    return toast(`Erro ao alterar cargo: ${errTxt || res.status}`);
+  }
+
+  if (nextRole !== "moderator" && email) {
+    await fetch(`${SUPABASE_URL}/rest/v1/moderators?email=eq.${encodeURIComponent(String(email).toLowerCase())}`, {
+      method: "DELETE",
+      headers: getHeaders(false)
+    }).catch(() => {});
+  }
+
+  await loadPlatformState();
+  await refreshControlPanel();
+  toast(`Cargo de ${email || userId} alterado para ${nextRole}.`);
+}
+
 async function refreshControlPanel() {
   if (!canAccessControlPanel()) return;
   document.getElementById("controlOperatorEmail").textContent = currentProfile?.email || authSession?.user?.email || "---";
@@ -1484,7 +1534,12 @@ async function refreshControlPanel() {
   document.getElementById("ctrlBotDesc").textContent = botTestAllowed ? "Liberado" : "Bloqueado";
 
   document.getElementById("ctrlModsTags").innerHTML = moderatorsEmails.length
-    ? moderatorsEmails.map(em => `<span class="mod-chip">👮 ${em}</span>`).join("")
+    ? moderatorsEmails.map(em => `
+        <span class="mod-chip">
+          👮 ${em}
+          ${isMaster ? `<button type="button" class="btn-danger btn-xs" style="margin-left:6px;" onclick="controlRemoveModerator('${em.replace(/'/g, "\\'")}')">Remover</button>` : ""}
+        </span>
+      `).join("")
     : `<span style="font-size:0.8rem; color:var(--text-muted);">Nenhum moderador cadastrado.</span>`;
 
   const profilesById = new Map();
@@ -1494,14 +1549,27 @@ async function refreshControlPanel() {
     const listUsers = Array.isArray(users) ? users : [];
     listUsers.forEach(u => { if (u.id) profilesById.set(u.id, u.full_name || u.email || "Professor"); });
     document.getElementById("ctrlKpiUsers").textContent = String(listUsers.length);
-    document.getElementById("ctrlUsersBody").innerHTML = listUsers.map(u => `
-      <tr>
-        <td><strong>${u.full_name || "Usuário"}</strong><div style="font-size:0.75rem; color:var(--text-muted);">${u.email || ""}</div></td>
-        <td>${u.role || "teacher"}</td>
-        <td>${u.subscription_status || "trial"}</td>
-        <td><button type="button" class="btn-ghost btn-xs" onclick="prefillResetPassword('${String(u.email || "").replace(/'/g, "\\'")}')">🔑 Senha</button></td>
-      </tr>
-    `).join("") || `<tr><td colspan="4" style="text-align:center;">Sem contas visíveis.</td></tr>`;
+    document.getElementById("ctrlUsersBody").innerHTML = listUsers.map(u => {
+      const safeEmail = String(u.email || "").replace(/'/g, "\\'");
+      const curRole = u.role || "teacher";
+      return `
+        <tr>
+          <td><strong>${u.full_name || "Usuário"}</strong><div style="font-size:0.75rem; color:var(--text-muted);">${u.email || ""}</div></td>
+          <td>
+            ${isMaster ? `
+              <select onchange="controlChangeUserRole('${u.id}', '${safeEmail}', this.value)" style="padding:4px 8px; border-radius:6px; background:#0b1c3d; color:#f8fafc; border:1px solid rgba(148,163,184,0.35);">
+                <option value="student" ${curRole === "student" ? "selected" : ""}>student</option>
+                <option value="teacher" ${curRole === "teacher" ? "selected" : ""}>teacher</option>
+                <option value="moderator" ${curRole === "moderator" ? "selected" : ""}>moderator</option>
+                <option value="admin" ${curRole === "admin" ? "selected" : ""}>admin</option>
+              </select>
+            ` : `<span>${curRole}</span>`}
+          </td>
+          <td>${u.subscription_status || "trial"}</td>
+          <td><button type="button" class="btn-ghost btn-xs" onclick="prefillResetPassword('${safeEmail}')">🔑 Senha</button></td>
+        </tr>
+      `;
+    }).join("") || `<tr><td colspan="4" style="text-align:center;">Sem contas visíveis.</td></tr>`;
   } catch (e) {}
 
   try {
