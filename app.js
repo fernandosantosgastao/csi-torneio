@@ -14,6 +14,8 @@ const CLASS_COLORS = {
 const GRAMMAR_CLASSES = Object.keys(CLASS_COLORS);
 const GRID_SIZE = 14;
 const MATH_INTERVAL_MS = 120000;
+const RESTORE_WINDOW_DAYS = 30;
+const RESTORE_WINDOW_MS = RESTORE_WINDOW_DAYS * 24 * 60 * 60 * 1000;
 
 const DEFAULT_24H_ROOMS = [
   { pin: "A24H", label: "Arena 24h • Alfa", storyIdx: 0 },
@@ -124,6 +126,7 @@ let authLoadedOnce = false;
 
 let activeRoomPin = "";
 let activeRoomState = null;
+let activeRoomMeta = null;
 let activePlayerNick = "";
 let activePlayerClass = "Geral";
 let lastProcessedEventId = 0;
@@ -211,6 +214,26 @@ function canAccessTeacherGenerator() {
   return currentProfile?.role === "teacher" || currentProfile?.subscription_status === "active" || currentProfile?.subscription_status === "trial";
 }
 
+function isMasterBlockedRoom(meta = activeRoomMeta, state = activeRoomState) {
+  return !!(meta?.admin_deleted || meta?.admin_locked || state?.adminDeleted || state?.adminLocked);
+}
+
+function canTeacherManageRoom(row) {
+  if (!authSession || !row) return false;
+  if (isAdminUser()) return true;
+  const myId = authSession.user?.id;
+  if (!myId || row.owner_id !== myId) return false;
+  if (row.admin_deleted || row.admin_locked || row.state?.adminDeleted || row.state?.adminLocked) return false;
+  return true;
+}
+
+function isWithin30Days(deletedAtIso) {
+  if (!deletedAtIso) return false;
+  const ts = Date.parse(deletedAtIso);
+  if (Number.isNaN(ts)) return false;
+  return (Date.now() - ts) <= RESTORE_WINDOW_MS;
+}
+
 function updateNavVisibility() {
   const canCtrl = canAccessControlPanel();
   document.getElementById("navControlPanelBtn")?.classList.toggle("hidden", !canCtrl);
@@ -284,6 +307,9 @@ async function navigateToRoute(targetPath, replaceState = false) {
     syncSalas24hView();
   } else if (route === "/gerador-de-salas") {
     syncTeacherGeneratorView();
+    if (authSession && canAccessTeacherGenerator()) {
+      await loadTeacherOwnRooms();
+    }
   } else if (route === "/painel-de-controle" && canAccessControlPanel()) {
     await refreshControlPanel();
   }
@@ -344,6 +370,9 @@ async function loadPlatformState() {
 function logoutAccountSession() {
   authSession = null;
   currentProfile = null;
+  activeRoomPin = "";
+  activeRoomState = null;
+  activeRoomMeta = null;
   try { localStorage.removeItem("csi_teacher_auth"); } catch (e) {}
   leaveCurrentMatchToHub();
   updateNavVisibility();
@@ -449,23 +478,34 @@ async function enterRoomByQuickCode() {
   if (!nick) return toast("Digite seu nome para entrar na sala.");
   if (!/^[A-Z0-9]{4}$/.test(pin)) return toast("Digite o código PIN de 4 caracteres da sala.");
 
-  let roomState = null;
+  let roomRow = null;
   try {
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/salas?pin=eq.${encodeURIComponent(pin)}&select=pin,state&limit=1`, {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/salas?pin=eq.${encodeURIComponent(pin)}&select=pin,owner_id,state,deleted_at,admin_locked,admin_deleted&limit=1`, {
       cache: "no-store",
       headers: { "apikey": SUPABASE_KEY }
     });
     if (res.ok) {
       const rows = await res.json().catch(() => []);
-      if (Array.isArray(rows) && rows[0]?.state?.grid) roomState = rows[0].state;
+      if (Array.isArray(rows) && rows[0]) roomRow = rows[0];
     }
   } catch (e) {}
 
-  if (!roomState) return toast(`Sala ${pin} não encontrada. Verifique o PIN com o professor.`);
-  if (roomState.closed) return toast(`A sala ${pin} está encerrada no momento.`);
+  if (!roomRow || !roomRow.state?.grid) {
+    return toast(`Sala ${pin} não encontrada. Verifique o PIN com o professor.`);
+  }
+  if (roomRow.admin_deleted || roomRow.state.adminDeleted) {
+    return toast(`Sala ${pin} removida pela administração.`);
+  }
+  if (roomRow.deleted_at) {
+    return toast(`Sala ${pin} está na lixeira no momento.`);
+  }
+  if (roomRow.closed || roomRow.state.closed || roomRow.admin_locked || roomRow.state.adminLocked) {
+    return toast(`A sala ${pin} está fechada ou bloqueada no momento.`);
+  }
 
   activeRoomPin = pin;
-  activeRoomState = roomState;
+  activeRoomState = roomRow.state;
+  activeRoomMeta = roomRow;
   activePlayerNick = nick;
   activePlayerClass = cls;
   lastProcessedEventId = 0;
@@ -557,13 +597,19 @@ async function enterRoom24h(pin, label, storyIdx = 0) {
 
   let roomState = null;
   try {
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/salas?pin=eq.${encodeURIComponent(pin)}&select=pin,state&limit=1`, {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/salas?pin=eq.${encodeURIComponent(pin)}&select=pin,state,admin_deleted,admin_locked&limit=1`, {
       cache: "no-store",
       headers: { "apikey": SUPABASE_KEY }
     });
     if (res.ok) {
       const rows = await res.json().catch(() => []);
-      if (Array.isArray(rows) && rows[0]?.state?.grid) roomState = rows[0].state;
+      if (Array.isArray(rows) && rows[0]) {
+        activeRoomMeta = rows[0];
+        if (rows[0].admin_deleted || rows[0].state?.adminDeleted) {
+          return toast(`Sala ${pin} bloqueada pela administração.`);
+        }
+        if (rows[0].state?.grid) roomState = rows[0].state;
+      }
     }
   } catch (e) {}
 
@@ -1090,6 +1136,178 @@ async function loginFromTeacherRoute() {
   await loadSessionAndProfile();
   await loadPlatformState();
   syncTeacherGeneratorView();
+  await loadTeacherOwnRooms();
+}
+
+async function loadTeacherOwnRooms() {
+  const tbody = document.getElementById("teacherOwnRoomsBody");
+  if (!tbody || !authSession?.user?.id) return;
+
+  const myId = authSession.user.id;
+  const master = isAdminUser();
+
+  try {
+    const query = master
+      ? `${SUPABASE_URL}/rest/v1/salas?select=pin,owner_id,state,deleted_at,admin_locked,admin_deleted&limit=200`
+      : `${SUPABASE_URL}/rest/v1/salas?owner_id=eq.${encodeURIComponent(myId)}&select=pin,owner_id,state,deleted_at,admin_locked,admin_deleted&limit=100`;
+
+    const res = await fetch(query, { cache: "no-store", headers: getHeaders(false) });
+    const rows = res.ok ? await res.json().catch(() => []) : [];
+    const list = Array.isArray(rows) ? rows : [];
+
+    if (!list.length) {
+      tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; color:var(--text-muted);">Você ainda não criou nenhuma sala. Crie uma acima (ex.: AT74).</td></tr>`;
+      return;
+    }
+
+    tbody.innerHTML = list.map(r => {
+      const pCount = Object.keys(r.state?.players || {}).length;
+      const isMasterBlocked = !!(r.admin_deleted || r.admin_locked || r.state?.adminDeleted || r.state?.adminLocked);
+      const isTrash = !!r.deleted_at && !isMasterBlocked;
+      const canRestoreTrash = isTrash && isWithin30Days(r.deleted_at);
+
+      let estadoHtml = r.state?.closed
+        ? '<span class="status-pill-elim">Sala Encerrada</span>'
+        : '<span class="status-pill-active">Aberta</span>';
+      if (isMasterBlocked) {
+        estadoHtml = '<span class="status-pill-elim">Bloqueada/Removida pelo Admin</span>';
+      } else if (isTrash) {
+        estadoHtml = canRestoreTrash
+          ? '<span style="color:var(--gold); font-weight:800;">Na Lixeira (até 30 dias)</span>'
+          : '<span class="status-pill-elim">Prazo de 30 dias expirado</span>';
+      }
+
+      let acoesHtml = "";
+      if (isMasterBlocked && !master) {
+        acoesHtml = `<span style="font-size:0.78rem; color:#fda4af;">Sem permissão (bloqueio do Admin)</span>`;
+      } else if (isTrash) {
+        acoesHtml = canRestoreTrash
+          ? `<button type="button" class="btn-success btn-xs" onclick="teacherRestoreRoom('${r.pin}')">♻️ Restaurar Sala</button>`
+          : `<span style="font-size:0.78rem; color:var(--text-muted);">Expirada</span>`;
+      } else {
+        acoesHtml = `
+          <div class="mod-btn-row">
+            <button type="button" class="btn-primary btn-xs" onclick="teacherOpenOwnRoom('${r.pin}')">Gerenciar Sala</button>
+            <button type="button" class="btn-danger btn-xs" onclick="teacherSoftDeleteRoom('${r.pin}')">🗑️ Excluir (30d)</button>
+          </div>
+        `;
+      }
+
+      return `
+        <tr>
+          <td><strong style="color:var(--gold);">${r.pin}</strong></td>
+          <td><strong>${r.state?.roomLabel || `Sala ${r.pin}`}</strong></td>
+          <td>${pCount}</td>
+          <td>${estadoHtml}</td>
+          <td>${acoesHtml}</td>
+        </tr>
+      `;
+    }).join("");
+  } catch (e) {
+    tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; color:var(--text-muted);">Erro ao carregar suas salas.</td></tr>`;
+  }
+}
+
+async function teacherOpenOwnRoom(pin) {
+  const cleanPin = String(pin || "").trim().toUpperCase();
+  if (!cleanPin || !authSession?.user?.id) return;
+
+  try {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/salas?pin=eq.${encodeURIComponent(cleanPin)}&select=pin,owner_id,state,deleted_at,admin_locked,admin_deleted&limit=1`, {
+      cache: "no-store",
+      headers: getHeaders(false)
+    });
+    const rows = res.ok ? await res.json().catch(() => []) : [];
+    const row = Array.isArray(rows) ? rows[0] : null;
+    if (!row) return toast("Sala não encontrada.");
+    if (!canTeacherManageRoom(row)) {
+      return toast("Acesso negado: você só pode gerenciar suas próprias salas sem bloqueio do Admin.");
+    }
+    if (row.deleted_at) {
+      return toast("Esta sala está na lixeira. Restaure-a primeiro para gerenciar.");
+    }
+
+    activeRoomPin = cleanPin;
+    activeRoomMeta = row;
+    activeRoomState = row.state;
+    lastProcessedEventId = 0;
+
+    document.getElementById("teacherLiveConsole")?.classList.remove("hidden");
+    await fetchRecentEventsAndSubscribe(cleanPin, null, null, null);
+    renderTeacherConsole();
+  } catch (e) {
+    toast("Falha ao abrir a sala.");
+  }
+}
+
+async function teacherSoftDeleteRoom(pin) {
+  const cleanPin = String(pin || "").trim().toUpperCase();
+  if (!cleanPin || !authSession?.user?.id) return;
+
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/salas?pin=eq.${encodeURIComponent(cleanPin)}&select=pin,owner_id,state,deleted_at,admin_locked,admin_deleted&limit=1`, {
+    cache: "no-store",
+    headers: getHeaders(false)
+  });
+  const rows = res.ok ? await res.json().catch(() => []) : [];
+  const row = Array.isArray(rows) ? rows[0] : null;
+  if (!row || !canTeacherManageRoom(row)) {
+    return toast("Você não pode excluir esta sala.");
+  }
+  if (!window.confirm(`Mover a sala ${cleanPin} para a lixeira? Você poderá restaurá-la por até 30 dias.`)) return;
+
+  const patchRes = await fetch(`${SUPABASE_URL}/rest/v1/salas?pin=eq.${encodeURIComponent(cleanPin)}`, {
+    method: "PATCH",
+    headers: { ...getHeaders(true), "Prefer": "return=minimal" },
+    body: JSON.stringify({ deleted_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+  });
+
+  if (patchRes.ok) {
+    if (activeRoomPin === cleanPin) {
+      activeRoomPin = "";
+      activeRoomState = null;
+      activeRoomMeta = null;
+      document.getElementById("teacherLiveConsole")?.classList.add("hidden");
+    }
+    await loadTeacherOwnRooms();
+    toast(`Sala ${cleanPin} movida para a lixeira (restauração disponível por 30 dias).`);
+  } else {
+    toast("Não foi possível excluir a sala.");
+  }
+}
+
+async function teacherRestoreRoom(pin) {
+  const cleanPin = String(pin || "").trim().toUpperCase();
+  if (!cleanPin || !authSession?.user?.id) return;
+
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/salas?pin=eq.${encodeURIComponent(cleanPin)}&select=pin,owner_id,state,deleted_at,admin_locked,admin_deleted&limit=1`, {
+    cache: "no-store",
+    headers: getHeaders(false)
+  });
+  const rows = res.ok ? await res.json().catch(() => []) : [];
+  const row = Array.isArray(rows) ? rows[0] : null;
+  if (!row) return;
+  if (row.admin_deleted || row.admin_locked || row.state?.adminDeleted || row.state?.adminLocked) {
+    return toast("Sala bloqueada ou excluída pela administração. O professor não pode restaurar.");
+  }
+  if (!isAdminUser() && row.owner_id !== authSession.user.id) {
+    return toast("Apenas o dono da sala pode restaurá-la.");
+  }
+  if (!isWithin30Days(row.deleted_at)) {
+    return toast("O prazo de 30 dias para restauração expirou.");
+  }
+
+  const patchRes = await fetch(`${SUPABASE_URL}/rest/v1/salas?pin=eq.${encodeURIComponent(cleanPin)}`, {
+    method: "PATCH",
+    headers: { ...getHeaders(true), "Prefer": "return=minimal" },
+    body: JSON.stringify({ deleted_at: null, updated_at: new Date().toISOString() })
+  });
+
+  if (patchRes.ok) {
+    await loadTeacherOwnRooms();
+    toast(`Sala ${cleanPin} restaurada com sucesso!`);
+  } else {
+    toast("Não foi possível restaurar a sala.");
+  }
 }
 
 async function createManagedClassRoom() {
@@ -1110,6 +1328,8 @@ async function createManagedClassRoom() {
     started: false,
     ended: false,
     closed: false,
+    adminLocked: false,
+    adminDeleted: false,
     stage: 1,
     storyIdx: STORIES.indexOf(story),
     grid: built.grid,
@@ -1117,51 +1337,90 @@ async function createManagedClassRoom() {
     claimedWords: {},
     players: {}
   };
+  activeRoomMeta = {
+    pin,
+    owner_id: authSession.user.id,
+    deleted_at: null,
+    admin_locked: false,
+    admin_deleted: false,
+    state: activeRoomState
+  };
 
   await fetch(`${SUPABASE_URL}/rest/v1/salas`, {
     method: "POST",
     headers: { ...getHeaders(true), "Prefer": "resolution=merge-duplicates" },
-    body: JSON.stringify({ pin, owner_id: authSession.user.id, state: activeRoomState, updated_at: new Date().toISOString() })
+    body: JSON.stringify({
+      pin,
+      owner_id: authSession.user.id,
+      deleted_at: null,
+      admin_locked: false,
+      admin_deleted: false,
+      state: activeRoomState,
+      updated_at: new Date().toISOString()
+    })
   });
 
   document.getElementById("teacherLiveConsole")?.classList.remove("hidden");
   await fetchRecentEventsAndSubscribe(pin, null, null, null);
   renderTeacherConsole();
+  await loadTeacherOwnRooms();
   toast(`Sala ${pin} criada!`);
 }
 
-async function persistRoomStatePatch(patchObj) {
+async function assertRoomActionAllowed() {
   if (!activeRoomPin || !activeRoomState) {
     toast("Selecione ou abra uma sala primeiro.");
-    return;
+    return false;
   }
+  if (!isAdminUser() && isMasterBlockedRoom(activeRoomMeta, activeRoomState)) {
+    toast("Esta sala foi bloqueada/fechada/removida pela administração. O professor não pode alterá-la.");
+    return false;
+  }
+  return true;
+}
+
+async function persistRoomStatePatch(patchObj) {
+  if (!(await assertRoomActionAllowed())) return false;
   Object.assign(activeRoomState, patchObj);
   await fetch(`${SUPABASE_URL}/rest/v1/salas`, {
     method: "POST",
     headers: { ...getHeaders(true), "Prefer": "resolution=merge-duplicates" },
     body: JSON.stringify({
       pin: activeRoomPin,
-      owner_id: authSession?.user?.id || null,
+      owner_id: activeRoomMeta?.owner_id || authSession?.user?.id || null,
+      admin_locked: !!activeRoomState.adminLocked,
+      admin_deleted: !!activeRoomState.adminDeleted,
       state: activeRoomState,
       updated_at: new Date().toISOString()
     })
   }).catch(() => {});
+  return true;
 }
 
 async function consoleStartMatch() {
-  if (!activeRoomState) return toast("Selecione uma sala primeiro.");
-  await persistRoomStatePatch({ started: true, ended: false });
+  if (!(await persistRoomStatePatch({ started: true, ended: false }))) return;
   renderTeacherConsole();
   renderAdminRoomInspector();
+  await loadTeacherOwnRooms();
   toast("Partida iniciada!");
 }
 
+async function consoleEndMatch() {
+  if (!(await persistRoomStatePatch({ started: false, ended: true }))) return;
+  await publishRoomEvent({
+    room_pin: activeRoomPin,
+    event_type: "ADMIN_END_MATCH"
+  });
+  await loadTeacherOwnRooms();
+  toast("Partida encerrada!");
+}
+
 async function consoleNewMatch() {
-  if (!activeRoomState) return toast("Selecione uma sala primeiro.");
+  if (!(await assertRoomActionAllowed())) return;
   const nextStoryIdx = ((activeRoomState.storyIdx || 0) + 1) % STORIES.length;
   const story = STORIES[nextStoryIdx];
   const built = buildWordSearchMatrix(`${activeRoomPin}_match_${Date.now()}`, story.words);
-  await persistRoomStatePatch({
+  const ok = await persistRoomStatePatch({
     started: true,
     ended: false,
     closed: false,
@@ -1172,21 +1431,23 @@ async function consoleNewMatch() {
     claimedWords: {},
     players: {}
   });
+  if (!ok) return;
   await publishRoomEvent({
     room_pin: activeRoomPin,
     event_type: "ADMIN_NEW_MATCH"
   });
+  await loadTeacherOwnRooms();
   toast("Novo torneio iniciado!");
 }
 
 async function consoleAdvanceStage() {
-  if (!activeRoomState) return toast("Selecione uma sala primeiro.");
+  if (!(await assertRoomActionAllowed())) return;
   const nextStage = (activeRoomState.stage || 1) + 1;
   const nextStoryIdx = ((activeRoomState.storyIdx || 0) + 1) % STORIES.length;
   const story = STORIES[nextStoryIdx];
   const built = buildWordSearchMatrix(`${activeRoomPin}_s${nextStage}_${Date.now()}`, story.words);
   Object.values(activeRoomState.players || {}).forEach(p => { p.stageScore = 0; });
-  await persistRoomStatePatch({
+  const ok = await persistRoomStatePatch({
     started: true,
     ended: false,
     stage: nextStage,
@@ -1195,23 +1456,79 @@ async function consoleAdvanceStage() {
     grid: built.grid,
     wordPlacements: built.placements
   });
+  if (!ok) return;
   renderTeacherConsole();
   renderAdminRoomInspector();
+  await loadTeacherOwnRooms();
   toast(`Fase ${nextStage} iniciada e classificada!`);
 }
 
 async function consoleToggleClose() {
-  if (!activeRoomState) return toast("Selecione uma sala primeiro.");
-  await persistRoomStatePatch({ closed: !activeRoomState.closed });
+  if (!(await assertRoomActionAllowed())) return;
+  const nextClosed = !activeRoomState.closed;
+  const masterLock = isAdminUser() ? nextClosed : !!activeRoomState.adminLocked;
+  const ok = await persistRoomStatePatch({ closed: nextClosed, adminLocked: masterLock });
+  if (!ok) return;
   await publishRoomEvent({
     room_pin: activeRoomPin,
     event_type: "ADMIN_TOGGLE_ROOM"
   });
-  toast(activeRoomState.closed ? "Sala encerrada!" : "Sala reaberta!");
+  await loadTeacherOwnRooms();
+  toast(nextClosed ? "Sala encerrada!" : "Sala reaberta!");
+}
+
+async function adminToggleLockRoom(pin) {
+  if (!isAdminUser()) return toast("Apenas Master Admin pode trancar/bloquear salas.");
+  const cleanPin = String(pin || activeRoomPin || "").trim().toUpperCase();
+  if (!cleanPin) return;
+  if (activeRoomPin !== cleanPin) {
+    await inspectRoomInConsole(cleanPin);
+  }
+  if (!activeRoomState) return;
+  const nextLock = !activeRoomState.adminLocked;
+  activeRoomState.adminLocked = nextLock;
+  activeRoomState.closed = nextLock ? true : activeRoomState.closed;
+  await fetch(`${SUPABASE_URL}/rest/v1/salas?pin=eq.${encodeURIComponent(cleanPin)}`, {
+    method: "PATCH",
+    headers: { ...getHeaders(true), "Prefer": "return=minimal" },
+    body: JSON.stringify({
+      admin_locked: nextLock,
+      state: activeRoomState,
+      updated_at: new Date().toISOString()
+    })
+  });
+  await refreshControlPanel();
+  renderAdminRoomInspector();
+  toast(nextLock
+    ? `Sala ${cleanPin} trancada/bloqueada para o professor.`
+    : `Bloqueio master da sala ${cleanPin} removido.`);
+}
+
+async function adminSoftDeleteRoomMaster(pin) {
+  if (!isAdminUser()) return toast("Apenas Master Admin pode excluir salas com bloqueio total.");
+  const cleanPin = String(pin || "").trim().toUpperCase();
+  if (!cleanPin) return;
+  if (!window.confirm(`Excluir a sala ${cleanPin} como Master Admin? O professor não poderá mais mexer nem restaurar.`)) return;
+
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/salas?pin=eq.${encodeURIComponent(cleanPin)}`, {
+    method: "PATCH",
+    headers: { ...getHeaders(true), "Prefer": "return=minimal" },
+    body: JSON.stringify({
+      admin_deleted: true,
+      admin_locked: true,
+      deleted_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    })
+  });
+
+  if (res.ok) {
+    await refreshControlPanel();
+    toast(`Sala ${cleanPin} excluída e bloqueada para o professor.`);
+  }
 }
 
 async function adminAwardPointsToPlayer(playerKey, bonusPts = 50) {
-  if (!activeRoomPin || !activeRoomState) return;
+  if (!(await assertRoomActionAllowed())) return;
   const pl = activeRoomState.players?.[playerKey];
   if (!pl) return;
   await publishRoomEvent({
@@ -1228,7 +1545,7 @@ async function adminAwardPointsToPlayer(playerKey, bonusPts = 50) {
 }
 
 async function adminRevivePlayer(playerKey) {
-  if (!activeRoomPin || !activeRoomState) return;
+  if (!(await assertRoomActionAllowed())) return;
   const pl = activeRoomState.players?.[playerKey];
   if (!pl) return;
   await publishRoomEvent({
@@ -1243,7 +1560,7 @@ async function adminRevivePlayer(playerKey) {
 }
 
 async function adminEliminatePlayer(playerKey) {
-  if (!activeRoomPin || !activeRoomState) return;
+  if (!(await assertRoomActionAllowed())) return;
   const pl = activeRoomState.players?.[playerKey];
   if (!pl) return;
   await publishRoomEvent({
@@ -1332,10 +1649,13 @@ function renderTeacherConsole() {
   const story = STORIES[(activeRoomState.storyIdx || 0) % STORIES.length];
   const stageNum = activeRoomState.stage || 1;
   const claimed = activeRoomState.claimedWords || {};
+  const lockedByAdmin = !isAdminUser() && isMasterBlockedRoom(activeRoomMeta, activeRoomState);
 
   document.getElementById("consolePinDisplay").textContent = activeRoomState.pin;
   document.getElementById("consoleRoomName").textContent = activeRoomState.roomLabel || `Sala ${activeRoomState.pin}`;
-  document.getElementById("consoleRoomPhaseTitle").textContent = `Fase ${stageNum} • "${story.title}"`;
+  document.getElementById("consoleRoomPhaseTitle").textContent = lockedByAdmin
+    ? "Bloqueada/Fechada pela Administração"
+    : `Fase ${stageNum} • "${story.title}"`;
 
   const entries = Object.entries(activeRoomState.players || {})
     .map(([k, v]) => ({ key: k, ...v }))
@@ -1346,6 +1666,11 @@ function renderTeacherConsole() {
 
   const btnClose = document.getElementById("btnConsoleToggleRoom");
   if (btnClose) btnClose.textContent = activeRoomState.closed ? "🔓 Reabrir Sala" : "🔒 Encerrar Sala";
+
+  ["btnConsoleStartMatch", "btnConsoleEndMatch", "btnConsoleStartOrNext", "btnConsoleToggleRoom", "btnConsoleNewMatch"].forEach(id => {
+    const b = document.getElementById(id);
+    if (b) b.disabled = lockedByAdmin;
+  });
 
   const podiumEl = document.getElementById("consolePodiumGrid");
   if (podiumEl) podiumEl.innerHTML = buildPodiumCardsHtml(entries);
@@ -1380,6 +1705,9 @@ function renderTeacherConsole() {
 }
 
 async function inspectRoomInConsole(pin) {
+  if (!canAccessControlPanel()) {
+    return toast("Acesso restrito a administradores e moderadores.");
+  }
   const cleanPin = String(pin || "").trim().toUpperCase();
   if (!cleanPin) return toast("Informe um PIN válido.");
 
@@ -1388,47 +1716,48 @@ async function inspectRoomInConsole(pin) {
 
   const inspectorBox = document.getElementById("adminRoomInspector");
   if (inspectorBox) inspectorBox.classList.remove("hidden");
-  document.getElementById("teacherLiveConsole")?.classList.remove("hidden");
   document.getElementById("inspRoomPin").textContent = cleanPin;
-  document.getElementById("inspRoomTitle").textContent = `Turma ${cleanPin}`;
+  document.getElementById("inspRoomTitle").textContent = `Sala ${cleanPin}`;
   document.getElementById("inspRoomMeta").textContent = "Carregando participantes e eventos...";
   document.getElementById("inspPlayersBody").innerHTML =
     `<tr><td colspan="8" style="text-align:center; color:var(--text-muted);">Carregando jogadores da sala ${cleanPin}...</td></tr>`;
 
-  let roomState = null;
+  let roomRow = null;
   try {
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/salas?pin=eq.${encodeURIComponent(cleanPin)}&select=pin,state&limit=1`, {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/salas?pin=eq.${encodeURIComponent(cleanPin)}&select=pin,owner_id,state,deleted_at,admin_locked,admin_deleted&limit=1`, {
       cache: "no-store",
       headers: { "apikey": SUPABASE_KEY }
     });
     if (res.ok) {
       const rows = await res.json().catch(() => []);
-      if (Array.isArray(rows) && rows[0]?.state && typeof rows[0].state === "object") {
-        roomState = rows[0].state;
-      }
+      if (Array.isArray(rows) && rows[0]) roomRow = rows[0];
     }
   } catch (e) {}
 
-  if (!roomState || !Array.isArray(roomState.grid)) {
+  activeRoomMeta = roomRow;
+  let roomState = roomRow?.state && Array.isArray(roomRow.state.grid) ? roomRow.state : null;
+
+  if (!roomState) {
     const built = buildWordSearchMatrix(`inspect_${cleanPin}`, STORIES[0].words);
     roomState = {
       pin: cleanPin,
-      roomLabel: roomState?.roomLabel || `Turma ${cleanPin}`,
+      roomLabel: roomRow?.state?.roomLabel || `Sala ${cleanPin}`,
       started: true,
       ended: false,
-      closed: !!roomState?.closed,
-      stage: roomState?.stage || 1,
-      storyIdx: roomState?.storyIdx || 0,
+      closed: !!roomRow?.state?.closed,
+      adminLocked: !!roomRow?.admin_locked,
+      adminDeleted: !!roomRow?.admin_deleted,
+      stage: roomRow?.state?.stage || 1,
+      storyIdx: roomRow?.state?.storyIdx || 0,
       grid: built.grid,
       wordPlacements: built.placements,
-      claimedWords: roomState?.claimedWords || {},
-      players: roomState?.players || {}
+      claimedWords: roomRow?.state?.claimedWords || {},
+      players: roomRow?.state?.players || {}
     };
   }
 
   activeRoomState = roomState;
   await fetchRecentEventsAndSubscribe(cleanPin, null, null, null);
-  renderTeacherConsole();
   renderAdminRoomInspector();
   inspectorBox?.scrollIntoView({ behavior: "smooth", block: "nearest" });
 }
@@ -1455,8 +1784,9 @@ function renderAdminRoomInspector() {
     .sort((a, b) => (b.score || 0) - (a.score || 0));
 
   const activeCount = entries.filter(p => !p.eliminated).length;
+  const lockFlag = isMasterBlockedRoom(activeRoomMeta, activeRoomState) ? " • BLOQUEADA/REMOVIDA PELO ADMIN" : "";
   document.getElementById("inspRoomMeta").textContent =
-    `Fase ${activeRoomState.stage || 1} • "${story.title}" • ${activeCount} ativos / ${entries.length} total • ${activeRoomState.closed ? "Fechada" : "Aberta"}`;
+    `Fase ${activeRoomState.stage || 1} • "${story.title}" • ${activeCount} ativos / ${entries.length} total • ${activeRoomState.closed ? "Fechada" : "Aberta"}${lockFlag}`;
 
   const podium = document.getElementById("inspPodiumGrid");
   if (podium) podium.innerHTML = buildPodiumCardsHtml(entries);
@@ -1580,11 +1910,13 @@ async function refreshControlPanel() {
         label: `${rm.label} (24h)`,
         mode: "24h",
         closed: false,
+        locked: false,
+        deleted: false,
         playersCount: 0
       });
     });
 
-    const rRes = await fetch(`${SUPABASE_URL}/rest/v1/salas?select=pin,owner_id,state&limit=200`, { cache: "no-store", headers: { "apikey": SUPABASE_KEY } });
+    const rRes = await fetch(`${SUPABASE_URL}/rest/v1/salas?select=pin,owner_id,state,deleted_at,admin_locked,admin_deleted&limit=200`, { cache: "no-store", headers: { "apikey": SUPABASE_KEY } });
     const rooms = rRes.ok ? await rRes.json().catch(() => []) : [];
     if (Array.isArray(rooms)) {
       rooms.forEach(r => {
@@ -1595,6 +1927,9 @@ async function refreshControlPanel() {
           label: `${r.state?.roomLabel || `Sala ${r.pin}`}${ownerName}`,
           mode: r.state?.is24h ? "24h" : "Turma",
           closed: !!r.state?.closed,
+          locked: !!(r.admin_locked || r.state?.adminLocked),
+          deleted: !!(r.admin_deleted || r.state?.adminDeleted),
+          trashed: !!r.deleted_at,
           playersCount: pCount
         });
       });
@@ -1618,6 +1953,8 @@ async function refreshControlPanel() {
             label: `Sala / Teste ${pin}`,
             mode: "Eventos",
             closed: false,
+            locked: false,
+            deleted: false,
             playersCount: setKeys.size
           });
         } else {
@@ -1629,21 +1966,29 @@ async function refreshControlPanel() {
 
     const allRooms = Array.from(roomMap.values());
     document.getElementById("ctrlKpiRooms").textContent = String(allRooms.length);
-    document.getElementById("ctrlRoomsBody").innerHTML = allRooms.map(r => `
-      <tr>
-        <td><strong style="color:var(--gold);">${r.pin}</strong></td>
-        <td>${r.label}</td>
-        <td>${r.mode}</td>
-        <td><strong>${r.playersCount}</strong></td>
-        <td>${r.closed ? "Encerrada" : "Aberta"}</td>
-        <td>
-          <div class="mod-btn-row">
-            <button type="button" class="btn-primary btn-xs" onclick="inspectRoomInConsole('${r.pin}')">👁️ Abrir Sala</button>
-            ${isMaster ? `<button type="button" class="btn-danger btn-xs" onclick="controlDeleteRoom('${r.pin}')">Excluir</button>` : ""}
-          </div>
-        </td>
-      </tr>
-    `).join("") || `<tr><td colspan="6" style="text-align:center;">Nenhuma sala.</td></tr>`;
+    document.getElementById("ctrlRoomsBody").innerHTML = allRooms.map(r => {
+      const statusText = r.deleted
+        ? "Removida (Admin)"
+        : (r.locked ? "Trancada (Admin)" : (r.trashed ? "Lixeira (30d)" : (r.closed ? "Fechada" : "Aberta")));
+      return `
+        <tr>
+          <td><strong style="color:var(--gold);">${r.pin}</strong></td>
+          <td>${r.label}</td>
+          <td>${r.mode}</td>
+          <td><strong>${r.playersCount}</strong></td>
+          <td>${statusText}</td>
+          <td>
+            <div class="mod-btn-row">
+              <button type="button" class="btn-primary btn-xs" onclick="inspectRoomInConsole('${r.pin}')">👁️ Abrir Sala</button>
+              ${isMaster ? `
+                <button type="button" class="btn-gold btn-xs" onclick="adminToggleLockRoom('${r.pin}')">${r.locked ? "🔓 Destrancar" : "🔐 Trancar"}</button>
+                <button type="button" class="btn-danger btn-xs" onclick="adminSoftDeleteRoomMaster('${r.pin}')">Excluir (Master)</button>
+              ` : ""}
+            </div>
+          </td>
+        </tr>
+      `;
+    }).join("") || `<tr><td colspan="6" style="text-align:center;">Nenhuma sala.</td></tr>`;
   } catch (e) {}
 }
 
@@ -1693,16 +2038,6 @@ async function controlToggleBotFlag() {
     botTestAllowed = next;
     await refreshControlPanel();
   }
-}
-
-async function controlDeleteRoom(pin) {
-  if (!isAdminUser()) return;
-  await fetch(`${SUPABASE_URL}/rest/v1/salas?pin=eq.${encodeURIComponent(pin)}`, {
-    method: "DELETE",
-    headers: getHeaders(false)
-  }).catch(() => {});
-  await refreshControlPanel();
-  toast(`Sala ${pin} excluída.`);
 }
 
 async function controlClearRankingOnly() {
