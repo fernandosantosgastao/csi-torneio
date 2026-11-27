@@ -827,12 +827,63 @@ async function flushTeacherRoomSaveNow() {
   return await dbSaveRoom(roomPin, gameState, false);
 }
 
+function buildNextStageStateFromCurrent(current) {
+  const playersMap = current.players && typeof current.players === "object" ? current.players : {};
+  const competingEntries = sortPlayersByTotalScore(
+    Object.entries(playersMap).filter(([_, p]) => p && (p.status === "active" || p.status === "repechage")),
+    true
+  );
+
+  // Se houver 2 jogadores (ou no máximo 3 na disputa final), finaliza e elege o vencedor
+  if (competingEntries.length <= 3) {
+    competingEntries.forEach(([_, p]) => { p.status = "active"; });
+    return {
+      ...current,
+      finished: true,
+      v: (current.v || 1) + 1
+    };
+  }
+
+  const keepCount = Math.max(3, Math.ceil(competingEntries.length / 2));
+  competingEntries.forEach(([_, p], index) => {
+    if (index < keepCount) {
+      p.status = "active";
+    } else {
+      p.status = "repechage";
+    }
+    p.stageScore = 0;
+  });
+
+  const nextStage = (current.stage || 1) + 1;
+  let nextStoryIdx = Math.floor(Math.random() * STORY_BANK.length);
+  if (nextStoryIdx === current.storyIdx && STORY_BANK.length > 1) {
+    nextStoryIdx = (current.storyIdx + 1) % STORY_BANK.length;
+  }
+  const nextStory = randomizeStorySupportSentences(STORY_BANK[nextStoryIdx]);
+  const { grid, placements } = generateGrid(
+    (current.roomPin || roomPin || "SALA") + "_stage_" + nextStage + "_" + Date.now(),
+    nextStory.words
+  );
+
+  return {
+    ...current,
+    v: (current.v || 1) + 1,
+    stage: nextStage,
+    storyIdx: nextStoryIdx,
+    activeStory: nextStory,
+    finished: false,
+    grid,
+    wordPlacements: placements,
+    claimedWords: {}
+  };
+}
+
 async function persistStudentActionDirectlyToRoom(msg) {
   if (!roomPin || !msg || !msg.name) return;
   const lookup = await dbGetRoom(roomPin, false);
   if (!lookup || !lookup.ok || !lookup.exists || !lookup.state) return;
 
-  const latest = lookup.state;
+  let latest = lookup.state;
   if (latest.closed) {
     clearSessionState();
     resetToLobby();
@@ -880,8 +931,26 @@ async function persistStudentActionDirectlyToRoom(msg) {
     p.score = (p.score || 0) + 100;
   }
 
-  latest.v = (latest.v || 1) + 1;
+  // Se todas as palavras da fase foram encontradas, classifica/manda p/ repescagem/elimina e avança para Fase 2 ou finaliza (<= 3 / 2 jogadores)
+  const activeStoryObj = (latest.activeStory && Array.isArray(latest.activeStory.words))
+    ? latest.activeStory
+    : STORY_BANK[(latest.storyIdx || 0) % STORY_BANK.length];
+  if (latest.started && !latest.finished && Object.keys(latest.claimedWords).length >= activeStoryObj.words.length) {
+    latest = buildNextStageStateFromCurrent({ ...latest, roomPin });
+  } else {
+    latest.v = (latest.v || 1) + 1;
+  }
+
   await dbSaveRoom(roomPin, latest, true);
+  if (activeRealtimeChannel && roomChannelReady) {
+    try {
+      activeRealtimeChannel.send({
+        type: "broadcast",
+        event: "room_state",
+        payload: { state: latest }
+      });
+    } catch (e) {}
+  }
   reconcileRemoteStudentRoomState(latest);
 }
 
@@ -2006,14 +2075,13 @@ function applySingleBroadcastActionToTeacherState(msg) {
   }
 
   if (dirty) {
-    gameState.v = (gameState.v || 1) + 1;
-    renderTeacherDashboard();
-    broadcastRoomStateNow();
-
     const currentStory = getCurrentStory();
     if (gameState.started && !gameState.finished && Object.keys(gameState.claimedWords).length >= currentStory.words.length) {
       advanceTournamentStage();
     } else {
+      gameState.v = (gameState.v || 1) + 1;
+      renderTeacherDashboard();
+      broadcastRoomStateNow();
       scheduleTeacherRoomSave();
     }
   }
@@ -2102,7 +2170,12 @@ async function createTeacherRoom(resumePin = null, resumeLabel = null) {
   subscribeRoomRealtime(roomPin, (liveRoomState) => {
     if (liveRoomState && liveRoomState.grid && (liveRoomState.v || 0) > (gameState.v || 0)) {
       gameState = liveRoomState;
-      renderTeacherDashboard();
+      const currentStory = getCurrentStory();
+      if (gameState.started && !gameState.finished && Object.keys(gameState.claimedWords || {}).length >= currentStory.words.length) {
+        advanceTournamentStage();
+      } else {
+        renderTeacherDashboard();
+      }
     }
   }, (studentMsg) => {
     applySingleBroadcastActionToTeacherState(studentMsg);
@@ -2115,7 +2188,12 @@ async function createTeacherRoom(resumePin = null, resumeLabel = null) {
     const latestRoom = roomLookup && roomLookup.exists ? roomLookup.state : null;
     if (latestRoom && latestRoom.grid && (latestRoom.v || 0) !== (gameState.v || 0)) {
       gameState = latestRoom;
-      renderTeacherDashboard();
+      const currentStory = getCurrentStory();
+      if (gameState.started && !gameState.finished && Object.keys(gameState.claimedWords || {}).length >= currentStory.words.length) {
+        await advanceTournamentStage();
+      } else {
+        renderTeacherDashboard();
+      }
     }
   }, 2500);
 }
@@ -2164,48 +2242,18 @@ async function advanceTournamentStage() {
       true
     );
 
-    if (competingPlayers.length <= 3) {
-      competingPlayers.forEach(([_, p]) => { p.status = "active"; });
-      gameState.finished = true;
-      gameState.v = (gameState.v || 1) + 1;
-      renderTeacherDashboard();
-      broadcastRoomStateNow();
-      await flushTeacherRoomSaveNow();
-      showToast("🏆 TORNEIO FINALIZADO! Os 3 grandes vencedores foram definidos!");
-      return;
-    }
-
-    const keepCount = Math.max(3, Math.ceil(competingPlayers.length / 2));
-
-    competingPlayers.forEach(([id, p], index) => {
-      if (index < keepCount) {
-        p.status = "active";
-      } else {
-        p.status = "repechage";
-      }
-      p.stageScore = 0;
-    });
-
-    const nextStage = (gameState.stage || 1) + 1;
-    let nextStoryIdx = Math.floor(Math.random() * STORY_BANK.length);
-    if (nextStoryIdx === gameState.storyIdx && STORY_BANK.length > 1) {
-      nextStoryIdx = (gameState.storyIdx + 1) % STORY_BANK.length;
-    }
-    const nextStory = randomizeStorySupportSentences(STORY_BANK[nextStoryIdx]);
-    const { grid, placements } = generateGrid(roomPin + "_stage_" + nextStage + "_" + Date.now(), nextStory.words);
-
-    gameState.v = (gameState.v || 1) + 1;
-    gameState.stage = nextStage;
-    gameState.storyIdx = nextStoryIdx;
-    gameState.activeStory = nextStory;
-    gameState.grid = grid;
-    gameState.wordPlacements = placements;
-    gameState.claimedWords = {};
+    gameState = buildNextStageStateFromCurrent({ ...gameState, roomPin });
 
     renderTeacherDashboard();
     broadcastRoomStateNow();
     await flushTeacherRoomSaveNow();
-    showToast(`⚔️ Fase ${nextStage} iniciada! Top ${keepCount} classificados e demais na Repescagem!`);
+
+    if (gameState.finished) {
+      showToast("🏆 TORNEIO FINALIZADO! O vencedor foi definido!");
+    } else {
+      const keepCount = Math.max(3, Math.ceil(competingPlayers.length / 2));
+      showToast(`⚔️ Fase ${gameState.stage} iniciada! Classificados na frente e demais na Repescagem (top ${keepCount})!`);
+    }
   } finally {
     isAdvancingStage = false;
   }
@@ -2261,9 +2309,9 @@ function renderTeacherDashboard() {
     document.getElementById("teacherStageBadge").textContent = `⏳ Sala de Espera • Clique em "Iniciar Partida Agora"`;
   } else {
     btnStart.classList.add("hidden");
-    btnNext.classList.remove("hidden");
+    btnNext.classList.toggle("hidden", !!gameState.finished);
     document.getElementById("teacherStageBadge").textContent = gameState.finished
-      ? `🏆 TORNEIO ENCERRADO • Pódio Final`
+      ? `🏆 TORNEIO ENCERRADO • Resultado Final`
       : `Fase ${gameState.stage} • "${story.title}"`;
   }
 
@@ -2313,7 +2361,8 @@ function renderTeacherDashboard() {
     if (!gameState.started) badge = `<span class="status-tag st-waiting">⏳ Pronto na Sala</span>`;
     else if (p.status === "repechage") badge = `<span class="status-tag st-repechage">⚔️ Repescagem</span>`;
     else if (p.status === "eliminated") badge = `<span class="status-tag st-eliminated">Eliminado</span>`;
-    else if (gameState.finished && i < 3 && p.status === "active") badge = `<span class="status-tag st-active">🏆 VENCEDOR</span>`;
+    else if (gameState.finished && i === 0 && p.status === "active") badge = `<span class="status-tag st-active">👑 VENCEDOR</span>`;
+    else if (gameState.finished && i < 3 && p.status === "active") badge = `<span class="status-tag st-active">🏆 PÓDIO</span>`;
 
     const modCell = canMod ? `
       <td>
@@ -2436,11 +2485,13 @@ function reconcileRemoteStudentRoomState(remote) {
     return;
   }
 
-  myLocalWords.forEach(w => {
-    if (!remote.claimedWords[w]) {
-      remote.claimedWords[w] = { by: myName, points: 150 };
-    }
-  });
+  if (!remote.finished) {
+    myLocalWords.forEach(w => {
+      if (!remote.claimedWords[w]) {
+        remote.claimedWords[w] = { by: myName, points: 150 };
+      }
+    });
+  }
   gameState = remote;
 
   const me = gameState.players[myPlayerId];
@@ -2463,6 +2514,10 @@ function reconcileRemoteStudentRoomState(remote) {
   renderStudentGame(false);
 
   if (gameState.finished) {
+    isMathLocked = false;
+    isRecompLocked = false;
+    document.getElementById("mathModal").classList.add("hidden");
+    document.getElementById("recompositionModal").classList.add("hidden");
     showFinalTop3Modal();
   } else if (!me || me.status === "active") {
     checkGlobalMathGateTrigger();
@@ -3090,21 +3145,25 @@ function showFinalTop3Modal() {
   document.getElementById("eliminatedModal").classList.add("hidden");
 
   const ranked = sortPlayersByTotalScore(Object.entries(gameState.players), true);
-
-  const top3 = ranked.slice(0, 3).map(([_, p]) => p);
+  const topList = ranked.slice(0, 3).map(([_, p]) => p);
+  const isTwoPlayersMatch = ranked.length <= 2;
   const isMeFirst = ranked.length > 0 && ranked[0][0] === myPlayerId && (ranked[0][1].score || 0) > 0;
-  const medals = ["🥇 1º Lugar", "🥈 2º Lugar", "🥉 3º Lugar"];
+  const medals = isTwoPlayersMatch
+    ? ["👑 VENCEDOR (1º)", "🥈 2º Lugar"]
+    : ["🥇 1º Lugar", "🥈 2º Lugar", "🥉 3º Lugar"];
 
   document.getElementById("victoryModalTitle").textContent = isMeFirst
     ? "VOCÊ VENCEU!"
-    : "Pódio Oficial dos 3 Vencedores!";
+    : (isTwoPlayersMatch ? "Vencedor da Partida!" : "Pódio Oficial dos 3 Vencedores!");
   document.getElementById("victoryModalSubtitle").textContent = isMeFirst
-    ? `Parabéns, ${myName}! Você conquistou o 1º lugar do torneio!`
-    : "O torneio foi encerrado! Confira os 3 grandes campeões da sala:";
-  document.getElementById("finalTop3List").innerHTML = top3.map((p, idx) => `
-    <div style="padding:10px 0; border-bottom:${idx < 2 ? '1px solid var(--border)' : 'none'}; display:flex; justify-content:space-between; align-items:center;">
+    ? `Parabéns, ${myName}! Você venceu a partida!`
+    : (isTwoPlayersMatch
+      ? `Partida encerrada! Confira o vencedor e o placar final:`
+      : "O torneio foi encerrado! Confira os 3 grandes campeões da sala:");
+  document.getElementById("finalTop3List").innerHTML = topList.map((p, idx) => `
+    <div style="padding:10px 0; border-bottom:${idx < topList.length - 1 ? '1px solid var(--border)' : 'none'}; display:flex; justify-content:space-between; align-items:center;">
       <div>
-        <strong style="color:var(--gold);">${medals[idx]}:</strong> <strong>${p.name}</strong>
+        <strong style="color:var(--gold);">${medals[idx] || ("#" + (idx + 1))}:</strong> <strong>${p.name}</strong>
         <span style="font-size:0.82rem; color:var(--text-muted);">(${p.cls})</span>
       </div>
       <strong style="color:var(--success);">${p.score} pts</strong>
