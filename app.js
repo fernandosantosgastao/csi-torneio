@@ -1258,9 +1258,7 @@ async function persistStudentActionDirectlyToRoom(msg) {
 
   let latest = lookup.state;
   if (latest.closed) {
-    clearSessionState();
-    resetToLobby();
-    showToast("🔒 Esta sala foi encerrada pelo professor.");
+    leaveClosedRoomToJoinScreen("🔒 Esta sala foi encerrada pelo professor. Digite o código de outra sala.");
     return;
   }
 
@@ -1974,6 +1972,46 @@ function exitAndClearSession() {
   if (teacherAuthSession && teacherProfile) {
     loadRecentTeacherRooms();
   }
+}
+
+function hideAllStudentModals() {
+  closeQuizModal();
+  ["mathModal", "recompositionModal", "repechageModal", "eliminatedModal", "victoryModal"].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.classList.add("hidden");
+  });
+}
+
+function leaveClosedRoomToJoinScreen(toastMsg = "🔒 A sala foi encerrada pelo professor. Entre em outra sala.") {
+  clearSessionState();
+  roomPin = "";
+  gameState = {
+    v: 1,
+    started: false,
+    closed: false,
+    stage: 1,
+    storyIdx: 0,
+    finished: false,
+    roomLabel: "",
+    ownerEmail: "",
+    moderators: [],
+    grid: [],
+    wordPlacements: [],
+    claimedWords: {},
+    players: {},
+    activeStory: null
+  };
+  hideAllStudentModals();
+  resetToLobby();
+  if (typeof window.selectLobbyRole === "function") {
+    window.selectLobbyRole("student");
+  }
+  const pinInput = document.getElementById("inputPin");
+  if (pinInput) {
+    pinInput.value = "";
+    pinInput.focus();
+  }
+  if (toastMsg) showToast(toastMsg);
 }
 
 function getCurrentStory() {
@@ -2865,10 +2903,8 @@ function exportCSV() {
 function reconcileRemoteStudentRoomState(remote) {
   if (!remote) return;
 
-  if (remote.closed) {
-    clearSessionState();
-    resetToLobby();
-    showToast("🔒 A sala foi encerrada pelo professor. Todos os participantes foram desconectados.");
+  if (remote.closed || remote.deletedByAdmin) {
+    leaveClosedRoomToJoinScreen("🔒 Esta sala foi encerrada pelo professor. Entre em outra sala.");
     return;
   }
 
@@ -2889,12 +2925,7 @@ function reconcileRemoteStudentRoomState(remote) {
       recompTimerInterval = null;
     }
     repStep = 0;
-    closeQuizModal();
-    document.getElementById("mathModal").classList.add("hidden");
-    document.getElementById("recompositionModal").classList.add("hidden");
-    document.getElementById("repechageModal").classList.add("hidden");
-    document.getElementById("eliminatedModal").classList.add("hidden");
-    document.getElementById("victoryModal").classList.add("hidden");
+    hideAllStudentModals();
     gameState = remote;
     updateStudentScreenState();
     return;
@@ -2927,10 +2958,7 @@ function reconcileRemoteStudentRoomState(remote) {
     repStep = 0;
     isDragging = false;
     clearAllSelectionVisuals();
-    closeQuizModal();
-    document.getElementById("mathModal").classList.add("hidden");
-    document.getElementById("recompositionModal").classList.add("hidden");
-    document.getElementById("victoryModal").classList.add("hidden");
+    hideAllStudentModals();
     gameState = remote;
     const meStage = gameState.players && gameState.players[myPlayerId];
     if (meStage && typeof meStage.score === "number") {
@@ -3027,6 +3055,7 @@ async function joinAsStudent(savedSession = null) {
   }
   repStep = savedSession ? (savedSession.repStep || 0) : 0;
   lastBuiltGridKey = "";
+  hideAllStudentModals();
 
   const roomLookup = await dbGetRoom(roomPin, true);
   if (!roomLookup.ok) {
@@ -3041,8 +3070,7 @@ async function joinAsStudent(savedSession = null) {
   const remoteInitial = roomLookup.exists ? roomLookup.state : null;
   if (remoteInitial && remoteInitial.grid) {
     if (remoteInitial.closed || remoteInitial.deletedByAdmin) {
-      clearSessionState();
-      showToast(`🔒 A sala ${roomPin} foi encerrada ou excluída pelo administrador.`);
+      leaveClosedRoomToJoinScreen(`🔒 A sala ${roomPin} foi encerrada ou excluída pelo professor.`);
       return;
     }
 
@@ -3064,7 +3092,7 @@ async function joinAsStudent(savedSession = null) {
     }
   } else {
     if (savedSession) {
-      clearSessionState();
+      leaveClosedRoomToJoinScreen(`⚠️ A sala ${roomPin} foi encerrada ou não existe mais.`);
       return;
     }
     showToast(`❌ Sala "${roomPin}" inexistente! Somente códigos gerados por professores logados são válidos.`);
@@ -3135,9 +3163,7 @@ async function joinAsStudent(savedSession = null) {
     if (!roomCheck.ok) return;
     if (!roomCheck.exists) {
       if (roomCheck.reason === "not_found" || roomCheck.reason === "invalid_room") {
-        clearSessionState();
-        resetToLobby();
-        showToast(`⚠️ A sala ${roomPin} foi encerrada ou não existe mais.`);
+        leaveClosedRoomToJoinScreen(`⚠️ A sala ${roomPin} foi encerrada. Digite o código de outra sala.`);
       }
       return;
     }
@@ -3614,6 +3640,10 @@ async function submitRepechageAnswer(chosenOpt) {
 }
 
 function openEliminatedModal(reason) {
+  if (!roomPin || gameState.closed || gameState.deletedByAdmin) {
+    leaveClosedRoomToJoinScreen("🔒 Esta sala foi encerrada pelo professor. Entre em outra sala.");
+    return;
+  }
   closeQuizModal();
   document.getElementById("mathModal").classList.add("hidden");
   document.getElementById("recompositionModal").classList.add("hidden");
