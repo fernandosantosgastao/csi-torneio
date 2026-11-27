@@ -317,42 +317,157 @@ function setLeaderboardClearedAtMs(ts) {
   } catch (e) {}
 }
 
-function loadRoomHistoryLocal() {
-  try {
-    const raw = localStorage.getItem("csi_room_history_v2");
-    const parsed = raw ? JSON.parse(raw) : [];
-    roomHistoryEntries = Array.isArray(parsed) ? parsed : [];
-  } catch (e) {
-    roomHistoryEntries = [];
+function makeCanonicalPlayerId(name, cls) {
+  const cleanName = (name || "aluno")
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase().replace(/[^a-z0-9]/g, "");
+  const cleanCls = (cls || "geral")
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase().replace(/[^a-z0-9]/g, "");
+  return `u_${cleanName}_${cleanCls}`;
+}
+
+function renderLeaderboardRows(tbody, topList) {
+  if (!tbody) return;
+  if (!topList || topList.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; color:var(--text-muted);">Nenhum participante pontuou ainda.</td></tr>`;
+    return;
   }
+  const medals = ["🥇", "🥈", "🥉"];
+  tbody.innerHTML = topList.map((r, i) => `
+    <tr>
+      <td><strong>${medals[i] || ("#" + (i + 1))}</strong></td>
+      <td><strong>${r.nome}</strong></td>
+      <td style="color:var(--text-muted);">${r.turma || "Geral"}</td>
+      <td style="color:var(--gold); font-weight:900;">${r.pontos_totais} pts</td>
+      <td>${r.total_palavras}</td>
+      <td style="color:#d8b4fe; font-weight:700;">🧮 ${r.total_matematica}</td>
+    </tr>
+  `).join("");
+}
+
+async function loadBestPlayersRanking() {
+  const tbody = document.getElementById("bestRankingBody");
+  if (!tbody) return;
+
   try {
-    const snapRaw = localStorage.getItem("csi_deleted_room_snapshots_v1");
-    const snapParsed = snapRaw ? JSON.parse(snapRaw) : {};
-    deletedRoomSnapshots = (snapParsed && typeof snapParsed === "object") ? snapParsed : {};
+    let clearedMs = getLeaderboardClearedAtMs();
+    try {
+      const cfgRes = await fetch(`${SUPABASE_URL}/rest/v1/platform_config?id=eq.global&select=leaderboard_cleared_at`, {
+        cache: "no-store",
+        headers: { "apikey": SUPABASE_KEY }
+      });
+      if (cfgRes.ok) {
+        const cfgRows = await cfgRes.json().catch(() => []);
+        if (Array.isArray(cfgRows) && cfgRows[0]?.leaderboard_cleared_at) {
+          const remoteMs = new Date(cfgRows[0].leaderboard_cleared_at).getTime();
+          if (Number.isFinite(remoteMs) && remoteMs > clearedMs) {
+            clearedMs = remoteMs;
+            setLeaderboardClearedAtMs(remoteMs);
+          }
+        }
+      }
+    } catch (e) {}
+
+    const salasRes = await fetch(`${SUPABASE_URL}/rest/v1/salas?select=state,updated_at&limit=30`, {
+      cache: "no-store",
+      headers: { "apikey": SUPABASE_KEY }
+    });
+    const salasRows = salasRes.ok ? await salasRes.json().catch(() => []) : [];
+
+    if (Array.isArray(salasRows)) {
+      salasRows.forEach(row => {
+        const stCleared = row?.state?.leaderboardClearedAt ? new Date(row.state.leaderboardClearedAt).getTime() : 0;
+        if (Number.isFinite(stCleared) && stCleared > clearedMs) {
+          clearedMs = stCleared;
+          setLeaderboardClearedAtMs(stCleared);
+        }
+      });
+    }
+
+    const lbRes = await fetch(
+      `${SUPABASE_URL}/rest/v1/global_leaderboard?select=*&order=pontos_totais.desc&limit=10`,
+      { cache: "no-store", headers: { "apikey": SUPABASE_KEY } }
+    );
+    if (lbRes.ok) {
+      const lbRows = await lbRes.json().catch(() => []);
+      if (Array.isArray(lbRows) && lbRows.length > 0) {
+        const filteredRows = lbRows.filter(r => {
+          const tsStr = r.updated_at || r.created_at;
+          if (!clearedMs || !tsStr) return !clearedMs;
+          const rowMs = new Date(tsStr).getTime();
+          return Number.isFinite(rowMs) && rowMs > clearedMs;
+        });
+        renderLeaderboardRows(tbody, filteredRows);
+        return;
+      }
+    }
+
+    const aggregated = {};
+    if (Array.isArray(salasRows)) {
+      salasRows.forEach(row => {
+        const updatedMs = row?.updated_at ? new Date(row.updated_at).getTime() : 0;
+        if (clearedMs && (!updatedMs || updatedMs <= clearedMs)) return;
+
+        const players = row && row.state && row.state.players;
+        if (!players || typeof players !== "object") return;
+        Object.values(players).forEach(p => {
+          if (!p || !p.name) return;
+          const key = makeCanonicalPlayerId(p.name, p.cls);
+          if (!aggregated[key]) {
+            aggregated[key] = {
+              nome: p.name,
+              turma: p.cls || "Geral",
+              pontos_totais: 0,
+              total_palavras: 0,
+              total_matematica: 0
+            };
+          }
+          aggregated[key].pontos_totais += (p.score || 0);
+          aggregated[key].total_palavras += Array.isArray(p.words) ? p.words.length : 0;
+          aggregated[key].total_matematica += (p.mathSolved || 0);
+        });
+      });
+    }
+
+    const topList = Object.values(aggregated)
+      .sort((a, b) => b.pontos_totais - a.pontos_totais || b.total_palavras - a.total_palavras)
+      .slice(0, 10);
+
+    renderLeaderboardRows(tbody, topList);
   } catch (e) {
-    deletedRoomSnapshots = {};
+    renderLeaderboardRows(tbody, []);
   }
 }
 
-function saveRoomHistoryLocal() {
+async function syncCloudStoriesBank() {
   try {
-    localStorage.setItem("csi_room_history_v2", JSON.stringify(roomHistoryEntries.slice(0, 100)));
-  } catch (e) {}
-  try {
-    localStorage.setItem("csi_deleted_room_snapshots_v1", JSON.stringify(deletedRoomSnapshots));
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/custom_stories?select=title,html,words&order=created_at.asc&limit=50`, {
+      cache: "no-store",
+      headers: { "apikey": SUPABASE_KEY }
+    });
+    if (!res.ok) return;
+    const rows = await res.json().catch(() => []);
+    if (Array.isArray(rows) && rows.length > 0) {
+      try { localStorage.setItem("csi_custom_stories", JSON.stringify(rows)); } catch (e) {}
+      STORY_BANK = loadStoryBank(rows);
+    }
   } catch (e) {}
 }
 
-function clearRoomHistoryManually() {
-  roomHistoryEntries = [];
-  deletedRoomSnapshots = {};
+async function fetchGlobalBotTestFlag() {
   try {
-    localStorage.removeItem("csi_room_history_v2");
-    localStorage.removeItem("csi_deleted_room_snapshots_v1");
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/platform_config?id=eq.global&select=bot_test_enabled`, {
+      cache: "no-store",
+      headers: { "apikey": SUPABASE_KEY }
+    });
+    if (!res.ok) return;
+    const rows = await res.json().catch(() => []);
+    if (Array.isArray(rows) && rows.length > 0) {
+      isBotTestEnabledGlobally = !!rows[0].bot_test_enabled;
+      renderBotTestVisibility();
+    }
   } catch (e) {}
-  renderRoomHistoryPanel();
-  renderDeletedRoomsFolder();
-  showToast("🧹 Histórico limpo manualmente.");
 }
 
 function isUserAdmin() {
@@ -365,10 +480,6 @@ function isUserModerator() {
   const myEmail = String(teacherProfile.email || teacherAuthSession.user?.email || "").trim().toLowerCase();
   const roomMods = Array.isArray(gameState.moderators) ? gameState.moderators : [];
   return !!(myEmail && (moderatorsList.includes(myEmail) || roomMods.includes(myEmail)));
-}
-
-function canModerateCurrentRoom() {
-  return isUserModerator();
 }
 
 function isRoomDeletedByAdmin(pin) {
@@ -412,66 +523,19 @@ function canRestoreDeletedRoom(pin) {
   return (Date.now() - deletedAtMs) <= TEACHER_RESTORE_WINDOW_MS;
 }
 
-async function logRoomHistoryEvent(pin, label, eventType, isOpen, stateSnapshot = null, forceAdminDelete = false) {
-  const cleanPin = String(pin || "").trim().toUpperCase();
-  if (!cleanPin) return;
-  const cleanLabel = String(label || `Sala ${cleanPin}`).trim();
-  const teacherEmail = String(teacherProfile?.email || teacherAuthSession?.user?.email || "").trim().toLowerCase() || null;
-  const existing = roomHistoryEntries.find(r => r.pin === cleanPin);
-
-  if (stateSnapshot && typeof stateSnapshot === "object" && Array.isArray(stateSnapshot.grid)) {
-    deletedRoomSnapshots[cleanPin] = JSON.parse(JSON.stringify(stateSnapshot));
+function renderModeratorsUI() {
+  const listEl = document.getElementById("adminModeratorsList");
+  if (!listEl) return;
+  if (!moderatorsList.length) {
+    listEl.innerHTML = `<span style="font-size:0.76rem; color:var(--text-muted);">Nenhum moderador cadastrado ainda.</span>`;
+    return;
   }
-
-  const isDeletedNow = eventType === "DELETED"
-    ? true
-    : (eventType === "RESTORED" || eventType === "REOPENED" ? false : !!existing?.deleted);
-
-  const deletedByAdminFlag = eventType === "DELETED"
-    ? !!(forceAdminDelete || isUserAdmin())
-    : (eventType === "RESTORED" || eventType === "REOPENED" ? false : !!existing?.deletedByAdmin);
-
-  const deletedAtIso = eventType === "DELETED"
-    ? new Date().toISOString()
-    : (eventType === "RESTORED" || eventType === "REOPENED" ? null : (existing?.deletedAt || null));
-
-  const entry = {
-    pin: cleanPin,
-    label: cleanLabel,
-    teacherEmail: existing?.teacherEmail || teacherEmail,
-    eventType,
-    isOpen: !!isOpen,
-    deleted: isDeletedNow,
-    deletedByAdmin: deletedByAdminFlag,
-    deletedAt: deletedAtIso,
-    at: new Date().toISOString()
-  };
-
-  roomHistoryEntries = [
-    entry,
-    ...roomHistoryEntries.filter(r => r.pin !== cleanPin)
-  ];
-  saveRoomHistoryLocal();
-  renderRoomHistoryPanel();
-  renderDeletedRoomsFolder();
-
-  try {
-    await fetch(`${SUPABASE_URL}/rest/v1/room_history_logs`, {
-      method: "POST",
-      headers: {
-        "apikey": SUPABASE_KEY,
-        "Content-Type": "application/json",
-        "Prefer": "return=minimal"
-      },
-      body: JSON.stringify({
-        room_pin: cleanPin,
-        room_label: cleanLabel,
-        teacher_email: entry.teacherEmail,
-        event_type: eventType,
-        is_open: !!isOpen
-      })
-    });
-  } catch (e) {}
+  listEl.innerHTML = moderatorsList.map(email => `
+    <span class="mod-chip">
+      <span>👮 ${email}</span>
+      <button type="button" title="Remover moderador" onclick="removeModeratorEmail('${email.replace(/'/g, "\\'")}')">✕</button>
+    </span>
+  `).join("");
 }
 
 function renderRoomHistoryPanel() {
@@ -571,12 +635,75 @@ function renderDeletedRoomsFolder() {
   }).join("");
 }
 
-async function refreshRoomHistoryAndRooms() {
-  loadRoomHistoryLocal();
-  renderRoomHistoryPanel();
+function renderBotTestVisibility() {
+  const btnVisitor = document.getElementById("btnOpenBotTest");
+  const isAdmin = isUserAdmin();
+
+  if (btnVisitor) {
+    btnVisitor.classList.toggle("hidden", !isBotTestEnabledGlobally);
+  }
+
+  const adminBox = document.getElementById("adminBotControlBox");
+  const modBox = document.getElementById("adminModPanelBox");
+  const storyBox = document.getElementById("adminStoryCreatorBox");
+  const dangerResetBox = document.getElementById("adminDangerResetBox");
+  const toggleBtn = document.getElementById("btnToggleBotTest");
+  const statusLbl = document.getElementById("adminBotStatusLabel");
+
+  if (modBox) {
+    modBox.classList.toggle("hidden", !isAdmin);
+    if (isAdmin) renderModeratorsUI();
+  }
+
+  if (storyBox) {
+    storyBox.classList.toggle("hidden", !isAdmin);
+  }
+
+  if (dangerResetBox) {
+    dangerResetBox.classList.toggle("hidden", !isAdmin);
+  }
+
   renderDeletedRoomsFolder();
-  await loadRecentTeacherRooms();
-  showToast("↻ Histórico e salas atualizados.");
+
+  if (adminBox && toggleBtn && statusLbl) {
+    adminBox.classList.toggle("hidden", !isAdmin);
+    if (isBotTestEnabledGlobally) {
+      statusLbl.textContent = "Status: LIBERADO para teste com 4 bots";
+      statusLbl.style.color = "#34d399";
+      toggleBtn.textContent = "🔒 Bloquear Teste";
+    } else {
+      statusLbl.textContent = "Status: BLOQUEADO (somente você pode liberar)";
+      statusLbl.style.color = "#fda4af";
+      toggleBtn.textContent = "🔓 Liberar Teste";
+    }
+  }
+}
+
+function renderLegends() {
+  const html = GRAMMAR_CLASSES.map(cls =>
+    `<span class="legend-pill" style="background:${CLASS_COLORS[cls]};">${cls}</span>`
+  ).join("");
+  ["lobbyLegendBar", "teacherLegendBar", "studentLegendBar", "botLegendBar"].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.innerHTML = html;
+  });
+}
+
+function loadRoomHistoryLocal() {
+  try {
+    const raw = localStorage.getItem("csi_room_history_v2");
+    const parsed = raw ? JSON.parse(raw) : [];
+    roomHistoryEntries = Array.isArray(parsed) ? parsed : [];
+  } catch (e) {
+    roomHistoryEntries = [];
+  }
+  try {
+    const snapRaw = localStorage.getItem("csi_deleted_room_snapshots_v1");
+    const snapParsed = snapRaw ? JSON.parse(snapRaw) : {};
+    deletedRoomSnapshots = (snapParsed && typeof snapParsed === "object") ? snapParsed : {};
+  } catch (e) {
+    deletedRoomSnapshots = {};
+  }
 }
 
 function getAuthHeaders(includeJson = false) {
@@ -604,7 +731,7 @@ async function dbGetRoom(pin, requireTeacherOwner = false) {
     if (!res.ok) {
       return { ok: false, exists: false, reason: `http_${res.status}`, state: null };
     }
-    const rows = await res.json();
+    const rows = await res.json().catch(() => []);
     if (!Array.isArray(rows) || rows.length === 0) {
       return { ok: true, exists: false, reason: "not_found", state: null };
     }
@@ -640,7 +767,7 @@ async function dbSaveRoom(pin, stateObj, useAnonKeyOnly = false) {
       body: JSON.stringify(bodyPayload)
     });
     if (!res.ok) {
-      const errTxt = await res.text();
+      const errTxt = await res.text().catch(() => "");
       return { ok: false, error: `HTTP ${res.status}: ${errTxt}` };
     }
     return { ok: true };
@@ -649,79 +776,8 @@ async function dbSaveRoom(pin, stateObj, useAnonKeyOnly = false) {
   }
 }
 
-function renderModeratorsUI() {
-  const listEl = document.getElementById("adminModeratorsList");
-  if (!listEl) return;
-  if (!moderatorsList.length) {
-    listEl.innerHTML = `<span style="font-size:0.76rem; color:var(--text-muted);">Nenhum moderador cadastrado ainda.</span>`;
-    return;
-  }
-  listEl.innerHTML = moderatorsList.map(email => `
-    <span class="mod-chip">
-      <span>👮 ${email}</span>
-      <button type="button" title="Remover moderador" onclick="removeModeratorEmail('${email.replace(/'/g, "\\'")}')">✕</button>
-    </span>
-  `).join("");
-}
-
-async function syncCloudModeratorsList() {
-  if (!teacherAuthSession || !teacherAuthSession.access_token) return;
-  try {
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/moderators?select=email`, {
-      cache: "no-store",
-      headers: {
-        "apikey": SUPABASE_KEY,
-        "Authorization": `Bearer ${teacherAuthSession.access_token}`
-      }
-    });
-    if (!res.ok) return;
-    const rows = await res.json();
-    if (Array.isArray(rows)) {
-      const emails = rows.map(r => r.email).filter(Boolean);
-      moderatorsList = saveModeratorsList(emails);
-      renderModeratorsUI();
-    }
-  } catch (e) {}
-}
-
-function makeCanonicalPlayerId(name, cls) {
-  const cleanName = (name || "aluno")
-    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase().replace(/[^a-z0-9]/g, "");
-  const cleanCls = (cls || "geral")
-    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase().replace(/[^a-z0-9]/g, "");
-  return `u_${cleanName}_${cleanCls}`;
-}
-
-function saveSessionState(role, extra = {}) {
-  try {
-    const session = {
-      role,
-      pin: roomPin,
-      name: myName,
-      cls: myClass,
-      roomLabel: extra.roomLabel || gameState.roomLabel || "",
-      repStep,
-      solvedMathCount,
-      lastTriggeredGlobalMilestone
-    };
-    localStorage.setItem("csi_active_session", JSON.stringify(session));
-  } catch (e) {}
-}
-
 function clearSessionState() {
   try { localStorage.removeItem("csi_active_session"); } catch (e) {}
-}
-
-function renderLegends() {
-  const html = GRAMMAR_CLASSES.map(cls =>
-    `<span class="legend-pill" style="background:${CLASS_COLORS[cls]};">${cls}</span>`
-  ).join("");
-  ["lobbyLegendBar", "teacherLegendBar", "studentLegendBar", "botLegendBar"].forEach(id => {
-    const el = document.getElementById(id);
-    if (el) el.innerHTML = html;
-  });
 }
 
 function isSubscriptionValid(profile) {
@@ -788,48 +844,24 @@ function renderTeacherAuthUI() {
   }
 }
 
-function renderBotTestVisibility() {
-  const btnVisitor = document.getElementById("btnOpenBotTest");
-  const isAdmin = isUserAdmin();
-
-  if (btnVisitor) {
-    btnVisitor.classList.toggle("hidden", !isBotTestEnabledGlobally);
-  }
-
-  const adminBox = document.getElementById("adminBotControlBox");
-  const modBox = document.getElementById("adminModPanelBox");
-  const storyBox = document.getElementById("adminStoryCreatorBox");
-  const dangerResetBox = document.getElementById("adminDangerResetBox");
-  const toggleBtn = document.getElementById("btnToggleBotTest");
-  const statusLbl = document.getElementById("adminBotStatusLabel");
-
-  if (modBox) {
-    modBox.classList.toggle("hidden", !isAdmin);
-    if (isAdmin) renderModeratorsUI();
-  }
-
-  if (storyBox) {
-    storyBox.classList.toggle("hidden", !isAdmin);
-  }
-
-  if (dangerResetBox) {
-    dangerResetBox.classList.toggle("hidden", !isAdmin);
-  }
-
-  renderDeletedRoomsFolder();
-
-  if (adminBox && toggleBtn && statusLbl) {
-    adminBox.classList.toggle("hidden", !isAdmin);
-    if (isBotTestEnabledGlobally) {
-      statusLbl.textContent = "Status: LIBERADO para teste com 4 bots";
-      statusLbl.style.color = "#34d399";
-      toggleBtn.textContent = "🔒 Bloquear Teste";
-    } else {
-      statusLbl.textContent = "Status: BLOQUEADO (somente você pode liberar)";
-      statusLbl.style.color = "#fda4af";
-      toggleBtn.textContent = "🔓 Liberar Teste";
+async function syncCloudModeratorsList() {
+  if (!teacherAuthSession || !teacherAuthSession.access_token) return;
+  try {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/moderators?select=email`, {
+      cache: "no-store",
+      headers: {
+        "apikey": SUPABASE_KEY,
+        "Authorization": `Bearer ${teacherAuthSession.access_token}`
+      }
+    });
+    if (!res.ok) return;
+    const rows = await res.json().catch(() => []);
+    if (Array.isArray(rows)) {
+      const emails = rows.map(r => r.email).filter(Boolean);
+      moderatorsList = saveModeratorsList(emails);
+      renderModeratorsUI();
     }
-  }
+  } catch (e) {}
 }
 
 async function loadRecentTeacherRooms() {
@@ -856,8 +888,8 @@ async function loadRecentTeacherRooms() {
       listEl.innerHTML = `<div style="font-size:0.82rem; color:var(--text-muted);">Não foi possível consultar salas recentes.</div>`;
       return;
     }
-    const rows = await res.json();
-    const validRooms = rows
+    const rows = await res.json().catch(() => []);
+    const validRooms = Array.isArray(rows) ? rows
       .filter(r => {
         if (!r || !r.pin || !r.state || !r.state.grid) return false;
         const cleanPin = String(r.pin).trim().toUpperCase();
@@ -869,7 +901,7 @@ async function loadRecentTeacherRooms() {
         const stateEmailMatch = !!(myEmail && r.state.ownerEmail && String(r.state.ownerEmail).toLowerCase() === myEmail);
         return ownerMatch || stateEmailMatch;
       })
-      .slice(0, 12);
+      .slice(0, 12) : [];
 
     if (validRooms.length === 0) {
       listEl.innerHTML = `<div style="font-size:0.82rem; color:var(--text-muted);">Nenhuma sala criada por você encontrada.</div>`;
@@ -952,93 +984,12 @@ async function loadTeacherSubscriptionProfile() {
   return true;
 }
 
-function switchAuthTab(mode) {
-  authMode = mode;
-  document.getElementById("tabLogin").classList.toggle("active", mode === "login");
-  document.getElementById("tabSignup").classList.toggle("active", mode === "signup");
-  document.getElementById("signupNameGroup").classList.toggle("hidden", mode === "login");
-  document.getElementById("btnAuthSubmit").textContent = mode === "login"
-    ? "🔐 Entrar como Professor"
-    : "✨ Criar Conta e Iniciar 7 Dias Grátis";
-}
-
-async function submitTeacherAuth() {
-  const email = String(document.getElementById("authEmail")?.value || "").trim().toLowerCase();
-  const password = String(document.getElementById("authPassword")?.value || "");
-  const fullName = String(document.getElementById("authTeacherName")?.value || "").trim();
-
-  if (!email || password.length < 6) {
-    showToast("Informe um e-mail válido e senha com no mínimo 6 caracteres.");
-    return;
+function unsubscribeRoomRealtime() {
+  roomChannelReady = false;
+  if (activeRealtimeChannel && sbRealtimeClient) {
+    try { sbRealtimeClient.removeChannel(activeRealtimeChannel); } catch (e) {}
   }
-
-  const btn = document.getElementById("btnAuthSubmit");
-  if (btn) btn.disabled = true;
-
-  try {
-    if (authMode === "signup") {
-      const res = await fetch(`${SUPABASE_URL}/auth/v1/signup`, {
-        method: "POST",
-        headers: {
-          "apikey": SUPABASE_KEY,
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          email,
-          password,
-          data: { full_name: fullName || email.split("@")[0] }
-        })
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        showToast("Erro ao cadastrar: " + (data.msg || data.error_description || "verifique os dados"));
-        return;
-      }
-      if (data.access_token) {
-        teacherAuthSession = { access_token: data.access_token, user: data.user };
-        try { localStorage.setItem("csi_teacher_auth", JSON.stringify(teacherAuthSession)); } catch (e) {}
-        await loadTeacherSubscriptionProfile();
-        showToast("Conta criada! Seu teste gratuito de 7 dias está ativo.");
-      } else {
-        showToast("Cadastro realizado! Confirme o link enviado no seu e-mail e faça login.");
-        switchAuthTab("login");
-      }
-    } else {
-      const res = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=password`, {
-        method: "POST",
-        headers: {
-          "apikey": SUPABASE_KEY,
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({ email, password })
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok || !data.access_token) {
-        showToast(data.error_description || data.msg || "E-mail ou senha inválidos.");
-        return;
-      }
-      teacherAuthSession = { access_token: data.access_token, user: data.user };
-      try { localStorage.setItem("csi_teacher_auth", JSON.stringify(teacherAuthSession)); } catch (e) {}
-      await loadTeacherSubscriptionProfile();
-      showToast("Login realizado com sucesso!");
-    }
-  } catch (err) {
-    showToast("Erro de rede ao tentar autenticar.");
-  } finally {
-    if (btn) btn.disabled = false;
-  }
-}
-
-function logoutTeacher(silent = false) {
-  teacherAuthSession = null;
-  teacherProfile = null;
-  try { localStorage.removeItem("csi_teacher_auth"); } catch (e) {}
-  clearSessionState();
-  renderTeacherAuthUI();
-  renderBotTestVisibility();
-  renderRoomHistoryPanel();
-  renderDeletedRoomsFolder();
-  if (!silent) showToast("Você saiu da conta de professor.");
+  activeRealtimeChannel = null;
 }
 
 function resetToLobby() {
@@ -1057,1943 +1008,18 @@ function resetToLobby() {
   document.body.classList.remove("focus-wordsearch-mode");
   const fab = document.getElementById("btnExitFocusFab");
   if (fab) fab.classList.add("hidden");
-  document.getElementById("viewTeacher").classList.add("hidden");
-  document.getElementById("viewStudent").classList.add("hidden");
-  document.getElementById("viewBotTest").classList.add("hidden");
-  document.getElementById("btnExitRoom").classList.add("hidden");
-  document.getElementById("viewLobby").classList.remove("hidden");
+  document.getElementById("viewTeacher")?.classList.add("hidden");
+  document.getElementById("viewStudent")?.classList.add("hidden");
+  document.getElementById("viewBotTest")?.classList.add("hidden");
+  document.getElementById("btnExitRoom")?.classList.add("hidden");
+  document.getElementById("viewLobby")?.classList.remove("hidden");
   openRoleGateway();
   setNetStatus("online", "Nuvem Pronta");
 }
 
-function exitAndClearSession() {
-  clearSessionState();
-  resetToLobby();
-  loadBestPlayersRanking();
-  if (teacherAuthSession && teacherProfile) {
-    loadRecentTeacherRooms();
-  }
-}
-
-function toggleFullscreen() {
-  const docEl = document.documentElement;
-  const isPseudoFs = document.body.classList.contains("pseudo-fullscreen");
-  const isNativeFs = document.fullscreenElement || document.webkitFullscreenElement;
-  const playingWordsearch =
-    (!document.getElementById("viewStudent").classList.contains("hidden") && gameState.started) ||
-    !document.getElementById("viewBotTest").classList.contains("hidden");
-
-  if (!isPseudoFs) {
-    document.body.classList.add("pseudo-fullscreen");
-    if (playingWordsearch) {
-      document.body.classList.add("focus-wordsearch-mode");
-      const fab = document.getElementById("btnExitFocusFab");
-      if (fab) fab.classList.remove("hidden");
-    }
-    if (!isNativeFs) {
-      if (docEl.requestFullscreen) {
-        docEl.requestFullscreen().catch(() => {});
-      } else if (docEl.webkitRequestFullscreen) {
-        try { docEl.webkitRequestFullscreen(); } catch (e) {}
-      }
-    }
-    showToast(playingWordsearch ? "Modo foco: grade ampliada para jogar!" : "Tela cheia ativada");
-  } else {
-    document.body.classList.remove("pseudo-fullscreen");
-    document.body.classList.remove("focus-wordsearch-mode");
-    const fab = document.getElementById("btnExitFocusFab");
-    if (fab) fab.classList.add("hidden");
-    if (isNativeFs) {
-      if (document.exitFullscreen) {
-        document.exitFullscreen().catch(() => {});
-      } else if (document.webkitExitFullscreen) {
-        try { document.webkitExitFullscreen(); } catch (e) {}
-      }
-    }
-    showToast("Tela cheia desativada");
-  }
-}
-
-function generatePin() {
-  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-  let res = "";
-  for (let i = 0; i < 4; i++) res += chars[Math.floor(Math.random() * chars.length)];
-  return res;
-}
-
-function createSeededRandom(seedStr) {
-  let h = 2166136261 >>> 0;
-  for (let i = 0; i < seedStr.length; i++) {
-    h ^= seedStr.charCodeAt(i);
-    h = Math.imul(h, 16777619);
-  }
-  return function() {
-    h += 0x6D2B79F5;
-    let t = Math.imul(h ^ (h >>> 15), 1 | h);
-    t ^= t + Math.imul(t ^ (t >>> 7), 61 | t);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
-function generateGrid(seedString, wordsList) {
-  const rng = createSeededRandom(seedString);
-  const grid = Array.from({ length: GRID_SIZE }, () => Array(GRID_SIZE).fill(""));
-  const placements = [];
-  const dirs = [[0, 1], [1, 0], [1, 1], [-1, 1]];
-  const sortedWords = [...wordsList].sort((a, b) => b.word.length - a.word.length);
-
-  for (const item of sortedWords) {
-    let placed = false;
-    let tries = 0;
-    while (!placed && tries < 400) {
-      tries++;
-      const [dr, dc] = dirs[Math.floor(rng() * dirs.length)];
-      const r0 = Math.floor(rng() * GRID_SIZE);
-      const c0 = Math.floor(rng() * GRID_SIZE);
-      const rEnd = r0 + dr * (item.word.length - 1);
-      const cEnd = c0 + dc * (item.word.length - 1);
-
-      if (rEnd < 0 || rEnd >= GRID_SIZE || cEnd < 0 || cEnd >= GRID_SIZE) continue;
-
-      let canPlace = true;
-      const coords = [];
-      for (let i = 0; i < item.word.length; i++) {
-        const r = r0 + dr * i;
-        const c = c0 + dc * i;
-        if (grid[r][c] !== "" && grid[r][c] !== item.word[i]) {
-          canPlace = false;
-          break;
-        }
-        coords.push(`${r},${c}`);
-      }
-
-      if (canPlace) {
-        for (let i = 0; i < item.word.length; i++) {
-          const r = r0 + dr * i;
-          const c = c0 + dc * i;
-          grid[r][c] = item.word[i];
-        }
-        placements.push({ word: item.word, coords });
-        placed = true;
-      }
-    }
-  }
-
-  const letters = "ABCDEFGHIJLMNOPQRSTUVXZ";
-  for (let r = 0; r < GRID_SIZE; r++) {
-    for (let c = 0; c < GRID_SIZE; c++) {
-      if (grid[r][c] === "") {
-        grid[r][c] = letters[Math.floor(rng() * letters.length)];
-      }
-    }
-  }
-
-  return { grid, placements };
-}
-
-function getCurrentStory() {
-  if (gameState && gameState.activeStory && Array.isArray(gameState.activeStory.words)) {
-    return gameState.activeStory;
-  }
-  const idx = (gameState.storyIdx || 0) % STORY_BANK.length;
-  return STORY_BANK[idx];
-}
-
-function getWordClassMap() {
-  const map = {};
-  getCurrentStory().words.forEach(w => { map[w.word] = w.cls; });
-  return map;
-}
-
-function sortPlayersByTotalScore(entriesOrPlayers, isEntries = false) {
-  const statusWeight = { active: 3, repechage: 2, eliminated: 1 };
-  return entriesOrPlayers.sort((a, b) => {
-    const pA = isEntries ? a[1] : a;
-    const pB = isEntries ? b[1] : b;
-    const wA = Array.isArray(pA.words) ? pA.words.length : 0;
-    const wB = Array.isArray(pB.words) ? pB.words.length : 0;
-    const participatedA = (pA.score || 0) > 0 && (wA > 0 || (pA.mathSolved || 0) > 0) ? 1 : 0;
-    const participatedB = (pB.score || 0) > 0 && (wB > 0 || (pB.mathSolved || 0) > 0) ? 1 : 0;
-
-    return (statusWeight[pB.status] || 0) - (statusWeight[pA.status] || 0) ||
-      participatedB - participatedA ||
-      (pB.score || 0) - (pA.score || 0) ||
-      wB - wA ||
-      (pB.stageScore || 0) - (pA.stageScore || 0);
-  });
-}
-
-function buildNextStageStateFromCurrent(current) {
-  const playersMap = current.players && typeof current.players === "object" ? current.players : {};
-  const competingEntries = sortPlayersByTotalScore(
-    Object.entries(playersMap).filter(([_, p]) => p && (p.status === "active" || p.status === "repechage")),
-    true
-  );
-
-  if (competingEntries.length <= 3) {
-    competingEntries.forEach(([_, p]) => { p.status = "active"; });
-    return {
-      ...current,
-      finished: true,
-      v: (current.v || 1) + 1
-    };
-  }
-
-  const keepCount = competingEntries.length === 4
-    ? 3
-    : Math.max(3, Math.ceil(competingEntries.length / 2));
-
-  const eliminateTailCount = competingEntries.length > 5
-    ? Math.max(1, Math.floor((competingEntries.length - keepCount) / 2))
-    : 0;
-
-  competingEntries.forEach(([_, p], index) => {
-    const wasRepechage = p.status === "repechage";
-    if (index < keepCount) {
-      p.status = "active";
-    } else if (wasRepechage || index >= competingEntries.length - eliminateTailCount) {
-      p.status = "eliminated";
-    } else {
-      p.status = "repechage";
-    }
-    p.stageScore = 0;
-  });
-
-  const remainingAfterCut = Object.values(playersMap).filter(
-    p => p && (p.status === "active" || p.status === "repechage")
-  );
-  if (remainingAfterCut.length <= 3) {
-    remainingAfterCut.forEach(p => { p.status = "active"; });
-    return {
-      ...current,
-      finished: true,
-      v: (current.v || 1) + 1
-    };
-  }
-
-  const nextStage = (current.stage || 1) + 1;
-  let nextStoryIdx = Math.floor(Math.random() * STORY_BANK.length);
-  if (nextStoryIdx === current.storyIdx && STORY_BANK.length > 1) {
-    nextStoryIdx = (current.storyIdx + 1) % STORY_BANK.length;
-  }
-  const nextStory = randomizeStorySupportSentences(STORY_BANK[nextStoryIdx]);
-  const { grid, placements } = generateGrid(
-    (current.roomPin || roomPin || "SALA") + "_stage_" + nextStage + "_" + Date.now(),
-    nextStory.words
-  );
-
-  return {
-    ...current,
-    v: (current.v || 1) + 1,
-    stage: nextStage,
-    storyIdx: nextStoryIdx,
-    activeStory: nextStory,
-    finished: false,
-    grid,
-    wordPlacements: placements,
-    claimedWords: {}
-  };
-}
-
-function getRealtimeClient() {
-  if (sbRealtimeClient) return sbRealtimeClient;
-  if (window.supabase && typeof window.supabase.createClient === "function") {
-    sbRealtimeClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
-      realtime: { params: { eventsPerSecond: 60 } }
-    });
-  }
-  return sbRealtimeClient;
-}
-
-function unsubscribeRoomRealtime() {
-  roomChannelReady = false;
-  if (activeRealtimeChannel && sbRealtimeClient) {
-    sbRealtimeClient.removeChannel(activeRealtimeChannel);
-  }
-  activeRealtimeChannel = null;
-}
-
-function broadcastStudentAction(msg) {
-  if (activeRealtimeChannel && roomChannelReady) {
-    try {
-      activeRealtimeChannel.send({
-        type: "broadcast",
-        event: "student_action",
-        payload: msg
-      });
-    } catch (e) {}
-  }
-}
-
-function broadcastRoomStateNow() {
-  if (activeRealtimeChannel && roomChannelReady && gameState && gameState.grid) {
-    try {
-      activeRealtimeChannel.send({
-        type: "broadcast",
-        event: "room_state",
-        payload: { state: gameState }
-      });
-    } catch (e) {}
-  }
-}
-
-function scheduleTeacherRoomSave() {
-  if (teacherSaveDebounceTimer) clearTimeout(teacherSaveDebounceTimer);
-  teacherSaveDebounceTimer = setTimeout(async () => {
-    teacherSaveDebounceTimer = null;
-    if (!roomPin || !gameState || !gameState.grid) return;
-    await dbSaveRoom(roomPin, gameState, false);
-  }, 2000);
-}
-
-async function flushTeacherRoomSaveNow() {
-  if (teacherSaveDebounceTimer) {
-    clearTimeout(teacherSaveDebounceTimer);
-    teacherSaveDebounceTimer = null;
-  }
-  if (!roomPin || !gameState || !gameState.grid) return { ok: false, error: "Sala não inicializada" };
-  return await dbSaveRoom(roomPin, gameState, false);
-}
-
-function subscribeRoomRealtime(pin, onRoomUpdate, onStudentBroadcast) {
-  unsubscribeRoomRealtime();
-  roomChannelReady = false;
-  const client = getRealtimeClient();
-  if (!client || !pin) return;
-
-  activeRealtimeChannel = client
-    .channel(`room-live-${pin}`, {
-      config: { broadcast: { ack: false, self: false } }
-    })
-    .on("broadcast", { event: "student_action" }, (payload) => {
-      if (payload && payload.payload && typeof onStudentBroadcast === "function") {
-        onStudentBroadcast(payload.payload);
-      }
-    })
-    .on("broadcast", { event: "room_state" }, (payload) => {
-      if (payload && payload.payload && payload.payload.state && typeof onRoomUpdate === "function") {
-        onRoomUpdate(payload.payload.state);
-      }
-    })
-    .on(
-      "postgres_changes",
-      { event: "UPDATE", schema: "public", table: "salas", filter: `pin=eq.${pin}` },
-      (payload) => {
-        if (payload.new && payload.new.state && typeof onRoomUpdate === "function") {
-          onRoomUpdate(payload.new.state);
-        }
-      }
-    )
-    .subscribe((status) => {
-      roomChannelReady = status === "SUBSCRIBED";
-    });
-}
-
-function ensurePlayerExists(playerId, name, cls) {
-  const canonicalId = makeCanonicalPlayerId(name, cls);
-  const key = gameState.players[canonicalId] ? canonicalId : (gameState.players[playerId] ? playerId : canonicalId);
-
-  if (!gameState.players[key]) {
-    gameState.players[key] = {
-      name: name || "Investigador",
-      cls: cls || "Geral",
-      score: 0,
-      stageScore: 0,
-      words: [],
-      mathSolved: 0,
-      errors: 0,
-      status: "active"
-    };
-  } else {
-    if (name) gameState.players[key].name = name;
-    if (cls) gameState.players[key].cls = cls;
-  }
-  return gameState.players[key];
-}
-
-function applySingleBroadcastActionToTeacherState(msg) {
-  if (!msg || !msg.name) return false;
-  const canonicalId = makeCanonicalPlayerId(msg.name, msg.cls);
-  let dirty = false;
-
-  if (msg.type === "JOIN") {
-    const before = !!gameState.players[canonicalId];
-    ensurePlayerExists(canonicalId, msg.name, msg.cls);
-    if (!before) dirty = true;
-  }
-
-  if (!gameState.started) {
-    if (msg.type === "JOIN") {
-      gameState.v = (gameState.v || 1) + 1;
-      renderTeacherDashboard();
-      broadcastRoomStateNow();
-      scheduleTeacherRoomSave();
-    }
-    return dirty;
-  }
-
-  if (msg.type === "CLAIM_WORD") {
-    const p = ensurePlayerExists(canonicalId, msg.name, msg.cls);
-    const w = msg.word;
-    const eventStage = msg.stage || gameState.stage;
-    if (eventStage === gameState.stage && p.status === "active" && !gameState.claimedWords[w] && !gameState.finished) {
-      gameState.claimedWords[w] = { by: p.name, points: msg.points };
-      p.score = Number(p.score || 0) + Number(msg.points || 0);
-      p.stageScore = Number(p.stageScore || 0) + Number(msg.points || 0);
-      if (!Array.isArray(p.words)) p.words = [];
-      if (!p.words.includes(w)) p.words.push(w);
-      dirty = true;
-    }
-  } else if (msg.type === "MATH_SOLVED") {
-    const p = ensurePlayerExists(canonicalId, msg.name, msg.cls);
-    p.score = Number(p.score || 0) + Number(msg.points || 0);
-    p.stageScore = Number(p.stageScore || 0) + Number(msg.points || 0);
-    p.mathSolved = Number(p.mathSolved || 0) + 1;
-    dirty = true;
-  } else if (msg.type === "REGISTER_ERROR") {
-    const p = ensurePlayerExists(canonicalId, msg.name, msg.cls);
-    p.errors = Number(p.errors || 0) + 1;
-    dirty = true;
-  } else if (msg.type === "RECOMP_ELIMINATED") {
-    const p = ensurePlayerExists(canonicalId, msg.name, msg.cls);
-    p.status = "eliminated";
-    dirty = true;
-  } else if (msg.type === "REPECHAGE_PASS") {
-    const p = ensurePlayerExists(canonicalId, msg.name, msg.cls);
-    if (p.status === "repechage") {
-      p.status = "active";
-      p.score = Number(p.score || 0) + 80;
-      dirty = true;
-    }
-  } else if (msg.type === "REPECHAGE_FAIL") {
-    const p = ensurePlayerExists(canonicalId, msg.name, msg.cls);
-    if (p.status === "repechage") {
-      p.status = "eliminated";
-      dirty = true;
-    }
-  }
-
-  if (dirty) {
-    const currentStory = getCurrentStory();
-    if (gameState.started && !gameState.finished && Object.keys(gameState.claimedWords).length >= currentStory.words.length) {
-      advanceTournamentStage();
-    } else {
-      gameState.v = (gameState.v || 1) + 1;
-      renderTeacherDashboard();
-      broadcastRoomStateNow();
-      scheduleTeacherRoomSave();
-    }
-  }
-
-  return dirty;
-}
-
-async function createTeacherRoom(resumePin = null, resumeLabel = null) {
-  if (!teacherAuthSession || !isSubscriptionValid(teacherProfile)) {
-    showToast("⛔ Acesso restrito: faça login com uma assinatura de professor ativa.");
-    return;
-  }
-
-  STORY_BANK = loadStoryBank();
-  roomPin = resumePin || generatePin();
-  isAdvancingStage = false;
-  const label = resumeLabel || document.getElementById("inputRoomLabel").value.trim() || "Torneio CSI";
-  const ownerEmail = String(teacherProfile?.email || teacherAuthSession?.user?.email || "").trim().toLowerCase();
-
-  let restored = false;
-  if (resumePin) {
-    const cleanTargetPin = String(resumePin).trim().toUpperCase();
-    const roomLookup = await dbGetRoom(cleanTargetPin, true);
-    if (isRoomDeletedByAdmin(cleanTargetPin) || roomLookup?.state?.deletedByAdmin) {
-      if (!isUserAdmin()) {
-        showToast("⛔ Esta sala foi excluída pelo Admin: somente o Admin pode acessar ou restaurar.");
-        return;
-      }
-    }
-    const existing = (roomLookup && roomLookup.exists ? roomLookup.state : null) || deletedRoomSnapshots[cleanTargetPin];
-    if (existing && existing.grid) {
-      gameState = {
-        ...existing,
-        closed: false,
-        deletedByAdmin: false,
-        ownerEmail: existing.ownerEmail || ownerEmail,
-        moderators: Array.isArray(existing.moderators) ? existing.moderators : [...moderatorsList]
-      };
-      restored = true;
-      await dbSaveRoom(cleanTargetPin, gameState, false);
-      showToast(`🔄 Painel da sala ${cleanTargetPin} restaurado com sucesso!`);
-    }
-  }
-
-  document.getElementById("viewLobby").classList.add("hidden");
-  document.getElementById("viewTeacher").classList.remove("hidden");
-  document.getElementById("btnExitRoom").classList.remove("hidden");
-  document.getElementById("teacherPinDisplay").textContent = roomPin;
-  document.getElementById("teacherRoomTitle").textContent = label;
-  document.getElementById("dbErrorBanner").classList.add("hidden");
-
-  if (!restored) {
-    const initialStoryIdx = Math.floor(Math.random() * STORY_BANK.length);
-    const story = randomizeStorySupportSentences(STORY_BANK[initialStoryIdx]);
-    const { grid, placements } = generateGrid(roomPin + "_1_" + Date.now(), story.words);
-    gameState = {
-      v: 1,
-      started: false,
-      closed: false,
-      stage: 1,
-      storyIdx: initialStoryIdx,
-      activeStory: story,
-      finished: false,
-      roomLabel: label,
-      ownerEmail,
-      moderators: [...moderatorsList],
-      grid,
-      wordPlacements: placements,
-      claimedWords: {},
-      players: {}
-    };
-
-    setNetStatus("", "Abrindo sala de espera...");
-    const result = await dbSaveRoom(roomPin, gameState);
-    if (result.ok) {
-      setNetStatus("online", "Sala de Espera (" + roomPin + ")");
-      await logRoomHistoryEvent(roomPin, label, "CREATED", true, gameState, false);
-      await loadRecentTeacherRooms();
-      showToast(`Sala ${roomPin} aberta! Aguarde os alunos e aperte "Iniciar Partida Agora".`);
-    } else {
-      setNetStatus("error", "Erro no Supabase");
-      document.getElementById("dbErrorBanner").classList.remove("hidden");
-      document.getElementById("dbErrorDetail").textContent = result.error;
-    }
-  } else {
-    setNetStatus("online", (gameState.started ? "Torneio Ao Vivo (" : "Sala de Espera (") + roomPin + ")");
-    await logRoomHistoryEvent(roomPin, label, "REOPENED", true, gameState, false);
-  }
-
-  saveSessionState("teacher", { roomLabel: label });
-  renderTeacherDashboard();
-
-  subscribeRoomRealtime(roomPin, (liveRoomState) => {
-    if (liveRoomState && liveRoomState.grid && (liveRoomState.v || 0) > (gameState.v || 0)) {
-      gameState = liveRoomState;
-      const currentStory = getCurrentStory();
-      if (gameState.started && !gameState.finished && Object.keys(gameState.claimedWords || {}).length >= currentStory.words.length) {
-        advanceTournamentStage();
-      } else {
-        renderTeacherDashboard();
-      }
-    }
-  }, (studentMsg) => {
-    applySingleBroadcastActionToTeacherState(studentMsg);
-  });
-
-  if (pollTimer) clearInterval(pollTimer);
-  pollTimer = setInterval(async () => {
-    if (isRoomSyncInFlight) return;
-    isRoomSyncInFlight = true;
-    try {
-      const roomLookup = await dbGetRoom(roomPin, true);
-      const latestRoom = roomLookup && roomLookup.exists ? roomLookup.state : null;
-      if (latestRoom && latestRoom.grid && (latestRoom.v || 0) > (gameState.v || 0)) {
-        gameState = latestRoom;
-        const currentStory = getCurrentStory();
-        if (gameState.started && !gameState.finished && Object.keys(gameState.claimedWords || {}).length >= currentStory.words.length) {
-          await advanceTournamentStage();
-        } else {
-          renderTeacherDashboard();
-        }
-      }
-    } finally {
-      isRoomSyncInFlight = false;
-    }
-  }, TEACHER_POLL_INTERVAL_MS);
-}
-
-async function startTournamentMatch() {
-  if (Object.keys(gameState.players).length === 0) {
-    showToast("⚠️ Nenhum aluno foi detectado ainda! Verifique se o código digitado por eles é " + roomPin);
-    return;
-  }
-
-  victoryModalDismissedForMatch = false;
-  lastMathPromptAtMs = Date.now();
-  gameState.closed = false;
-  gameState.started = true;
-  gameState.v = (gameState.v || 1) + 1;
-  setNetStatus("online", "Torneio Ao Vivo (" + roomPin + ")");
-  renderTeacherDashboard();
-  broadcastRoomStateNow();
-  await flushTeacherRoomSaveNow();
-  showToast(`🚀 Partida iniciada com ${Object.keys(gameState.players).length} aluno(s)!`);
-}
-
-async function advanceTournamentStage() {
-  if (isAdvancingStage || gameState.finished || !gameState.started) return;
-  isAdvancingStage = true;
-
-  try {
-    const competingPlayers = sortPlayersByTotalScore(
-      Object.entries(gameState.players).filter(([_, p]) => p.status === "active" || p.status === "repechage"),
-      true
-    );
-
-    gameState = buildNextStageStateFromCurrent({ ...gameState, roomPin });
-
-    renderTeacherDashboard();
-    broadcastRoomStateNow();
-    await flushTeacherRoomSaveNow();
-
-    if (gameState.finished) {
-      showToast("🏆 TORNEIO FINALIZADO! O vencedor foi definido!");
-    } else {
-      const keepCount = competingPlayers.length === 4
-        ? 3
-        : Math.max(3, Math.ceil(competingPlayers.length / 2));
-      showToast(`⚔️ Fase ${gameState.stage} iniciada! Classificados na frente e demais na Repescagem (top ${keepCount})!`);
-    }
-  } finally {
-    isAdvancingStage = false;
-  }
-}
-
-async function restartFullTournament() {
-  const initialStoryIdx = Math.floor(Math.random() * STORY_BANK.length);
-  const story = randomizeStorySupportSentences(STORY_BANK[initialStoryIdx]);
-  const { grid, placements } = generateGrid(roomPin + "_reset_" + Date.now(), story.words);
-
-  victoryModalDismissedForMatch = false;
-  lastMathPromptAtMs = Date.now();
-  gameState.v = (gameState.v || 1) + 1;
-  gameState.closed = false;
-  gameState.started = false;
-  gameState.stage = 1;
-  gameState.storyIdx = initialStoryIdx;
-  gameState.activeStory = story;
-  gameState.finished = false;
-  gameState.grid = grid;
-  gameState.wordPlacements = placements;
-  gameState.claimedWords = {};
-
-  Object.values(gameState.players).forEach(p => {
-    p.score = 0;
-    p.stageScore = 0;
-    p.words = [];
-    p.mathSolved = 0;
-    p.errors = 0;
-    p.status = "active";
-  });
-
-  setNetStatus("online", "Sala de Espera (" + roomPin + ")");
-  renderTeacherDashboard();
-  broadcastRoomStateNow();
-  await flushTeacherRoomSaveNow();
-  showToast(`Sala reiniciada! Clique em "Iniciar Partida Agora" quando todos estiverem prontos.`);
-}
-
-function renderTeacherDashboard() {
-  const story = getCurrentStory();
-  const canMod = canModerateCurrentRoom();
-  const modHeader = document.getElementById("teacherModColHeader");
-  if (modHeader) modHeader.classList.toggle("hidden", !canMod);
-
-  const btnStart = document.getElementById("btnStartTournament");
-  const btnNext = document.getElementById("btnForceNextStage");
-  if (gameState.closed) {
-    btnStart.classList.add("hidden");
-    btnNext.classList.add("hidden");
-    document.getElementById("teacherStageBadge").textContent = `🔒 SALA ENCERRADA • Reabra no histórico para liberar entradas`;
-  } else if (!gameState.started) {
-    btnStart.classList.remove("hidden");
-    btnNext.classList.add("hidden");
-    document.getElementById("teacherStageBadge").textContent = `⏳ Sala de Espera • Clique em "Iniciar Partida Agora"`;
-  } else {
-    btnStart.classList.add("hidden");
-    btnNext.classList.toggle("hidden", !!gameState.finished);
-    document.getElementById("teacherStageBadge").textContent = gameState.finished
-      ? `🏆 TORNEIO ENCERRADO • Resultado Final`
-      : `Fase ${gameState.stage} • "${story.title}"`;
-  }
-
-  const totalPlayers = Object.keys(gameState.players).length;
-  const activeCount = Object.values(gameState.players).filter(p => p.status === "active").length;
-  document.getElementById("connectedCount").textContent = gameState.started
-    ? `${activeCount} ativos / ${totalPlayers} total`
-    : `${totalPlayers} aluno(s) na sala de espera`;
-
-  const claimedCount = Object.keys(gameState.claimedWords).length;
-  document.getElementById("teacherProgress").textContent = `${claimedCount}/${story.words.length}`;
-
-  const chipsEl = document.getElementById("teacherWordChips");
-  chipsEl.innerHTML = story.words.map(item => {
-    const claim = gameState.claimedWords[item.word];
-    const color = CLASS_COLORS[item.cls] || "#10b981";
-    if (claim) {
-      return `<div class="chip claimed" style="background:${color};">✅ ${item.display} • ${item.cls} (${claim.by})</div>`;
-    }
-    return `<div class="chip">🔍 ${item.display}</div>`;
-  }).join("");
-
-  const rankingEntries = sortPlayersByTotalScore(Object.entries(gameState.players), true);
-  const ranking = rankingEntries.map(([_, p]) => p);
-
-  const podiumEl = document.getElementById("teacherPodium");
-  const medals = ["🥇", "🥈", "🥉"];
-  podiumEl.innerHTML = [0, 1, 2].map(idx => {
-    const p = ranking[idx];
-    return `
-      <div class="podium-item rank-${idx + 1}">
-        <div style="font-size:1.5rem;">${medals[idx]}</div>
-        <div style="font-weight:800; margin:4px 0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${p ? p.name : "Aguardando..."}</div>
-        <div style="font-size:0.85rem; color:var(--gold); font-weight:800;">${p ? p.score + " pts" : "-"}</div>
-      </div>
-    `;
-  }).join("");
-
-  const tbody = document.getElementById("teacherTableBody");
-  if (rankingEntries.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="${canMod ? 8 : 7}" style="text-align:center; color:var(--text-muted);">Projete o código ${roomPin} e aguarde os alunos entrarem antes de clicar em Iniciar Partida!</td></tr>`;
-    return;
-  }
-
-  tbody.innerHTML = rankingEntries.map(([pKey, p], i) => {
-    let badge = `<span class="status-tag st-active">Na Disputa</span>`;
-    if (!gameState.started) badge = `<span class="status-tag st-waiting">⏳ Pronto na Sala</span>`;
-    else if (p.status === "repechage") badge = `<span class="status-tag st-repechage">⚔️ Repescagem</span>`;
-    else if (p.status === "eliminated") badge = `<span class="status-tag st-eliminated">Eliminado</span>`;
-    else if (gameState.finished && i === 0 && p.status === "active") badge = `<span class="status-tag st-active">👑 VENCEDOR</span>`;
-    else if (gameState.finished && i < 3 && p.status === "active") badge = `<span class="status-tag st-active">🏆 PÓDIO</span>`;
-
-    const modCell = canMod ? `
-      <td>
-        <div class="mod-actions-cell">
-          <button type="button" class="btn-gold btn-xs" onclick="moderatePlayerAction('${pKey}', 'BONUS', 50)">+50 pts</button>
-          ${p.status !== "active" ? `<button type="button" class="btn-success btn-xs" onclick="moderatePlayerAction('${pKey}', 'REINSTATE')">Recolocar</button>` : ""}
-          ${p.status !== "eliminated" ? `<button type="button" class="btn-danger btn-xs" onclick="moderatePlayerAction('${pKey}', 'ELIMINATE')">Eliminar</button>` : ""}
-        </div>
-      </td>
-    ` : "";
-
-    return `
-      <tr>
-        <td><strong>#${i + 1}</strong></td>
-        <td><strong>${p.name}</strong> <span style="font-size:0.75rem; color:var(--text-muted);">(${p.cls})</span></td>
-        <td>${badge}</td>
-        <td style="color:var(--accent); font-weight:800;">${p.stageScore || 0}</td>
-        <td style="color:var(--gold); font-weight:900;">${p.score}</td>
-        <td>${p.words.length}</td>
-        <td style="color:#d8b4fe; font-weight:700;">🧮 ${p.mathSolved || 0}</td>
-        ${modCell}
-      </tr>
-    `;
-  }).join("");
-}
-
-function exportCSV() {
-  const ranking = sortPlayersByTotalScore(Object.values(gameState.players), false);
-  if (ranking.length === 0) {
-    showToast("Ainda não há alunos registrados no painel.");
-    return;
-  }
-  let csv = "\uFEFFPosicao;Aluno;Turma;Status;Pontos_Totais;Qtd_Palavras;Desafios_Matematica;Erros\n";
-  ranking.forEach((p, idx) => {
-    csv += `${idx + 1};"${p.name}";"${p.cls}";"${p.status}";${p.score};${p.words.length};${p.mathSolved || 0};${p.errors}\n`;
-  });
-  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-  const link = document.createElement("a");
-  link.href = URL.createObjectURL(blob);
-  link.download = `Torneio_CSI_${gameState.roomLabel.replace(/\s+/g, "_")}.csv`;
-  link.click();
-}
-
-function hideAllStudentModals() {
-  const qModal = document.getElementById("quizModal");
-  if (qModal) qModal.classList.add("hidden");
-  activeQuizWord = null;
-  wrongQuizClasses = new Set();
-  ["mathModal", "recompositionModal", "repechageModal", "eliminatedModal", "victoryModal"].forEach(id => {
-    const el = document.getElementById(id);
-    if (el) el.classList.add("hidden");
-  });
-}
-
-function leaveClosedRoomToJoinScreen(toastMsg = "🔒 A sala foi encerrada pelo professor. Entre em outra sala.") {
-  clearSessionState();
-  roomPin = "";
-  gameState = {
-    v: 1,
-    started: false,
-    closed: false,
-    stage: 1,
-    storyIdx: 0,
-    finished: false,
-    roomLabel: "",
-    ownerEmail: "",
-    moderators: [],
-    grid: [],
-    wordPlacements: [],
-    claimedWords: {},
-    players: {},
-    activeStory: null
-  };
-  hideAllStudentModals();
-  resetToLobby();
-  selectLobbyRole("student");
-  const pinInput = document.getElementById("inputPin");
-  if (pinInput) {
-    pinInput.value = "";
-    pinInput.focus();
-  }
-  if (toastMsg) showToast(toastMsg);
-}
-
-function isQuizModalCurrentlyOpen() {
-  const qModal = document.getElementById("quizModal");
-  return !!(activeQuizWord || (qModal && !qModal.classList.contains("hidden")));
-}
-
-function reconcileRemoteStudentRoomState(remote) {
-  if (!remote) return;
-
-  if (remote.closed || remote.deletedByAdmin) {
-    leaveClosedRoomToJoinScreen("🔒 Esta sala foi encerrada pelo professor. Entre em outra sala.");
-    return;
-  }
-
-  const wasStarted = gameState.started;
-  const stageChanged = remote.stage !== gameState.stage || remote.storyIdx !== gameState.storyIdx;
-
-  if (!remote.started) {
-    myLocalWords.clear();
-    myLocalScore = 0;
-    victoryModalDismissedForMatch = false;
-    lastMathPromptAtMs = 0;
-    playerStreak = 0;
-    lastTriggeredGlobalMilestone = 0;
-    isMathLocked = false;
-    isRecompLocked = false;
-    if (recompTimerInterval) {
-      clearInterval(recompTimerInterval);
-      recompTimerInterval = null;
-    }
-    repStep = 0;
-    hideAllStudentModals();
-    gameState = remote;
-    updateStudentScreenState();
-    return;
-  }
-
-  if (!wasStarted && remote.started) {
-    victoryModalDismissedForMatch = false;
-    lastMathPromptAtMs = Date.now();
-    gameState = remote;
-    const meStart = gameState.players && gameState.players[myPlayerId];
-    if (meStart && typeof meStart.score === "number") {
-      myLocalScore = Number(meStart.score);
-    }
-    applyStoryToStudentUI();
-    updateStudentScreenState();
-    renderStudentGame(true);
-    showToast("🚀 A partida começou! Boa sorte!");
-    return;
-  }
-
-  if (stageChanged) {
-    myLocalWords.clear();
-    victoryModalDismissedForMatch = false;
-    lastTriggeredGlobalMilestone = 0;
-    isMathLocked = false;
-    isRecompLocked = false;
-    if (recompTimerInterval) {
-      clearInterval(recompTimerInterval);
-      recompTimerInterval = null;
-    }
-    repStep = 0;
-    isDragging = false;
-    clearAllSelectionVisuals();
-    hideAllStudentModals();
-    gameState = remote;
-    const meStage = gameState.players && gameState.players[myPlayerId];
-    if (meStage && typeof meStage.score === "number") {
-      myLocalScore = Number(meStage.score);
-    }
-    saveSessionState("student");
-    applyStoryToStudentUI();
-    updateStudentScreenState();
-    renderStudentGame(true);
-
-    const meNow = gameState.players[myPlayerId];
-    if (meNow && meNow.status === "repechage") {
-      openRepechageModal();
-    } else if (meNow && meNow.status === "eliminated") {
-      openEliminatedModal("Você foi eliminado na fase anterior.");
-    } else {
-      document.getElementById("repechageModal").classList.add("hidden");
-      showToast(`⚔️ Fase ${gameState.stage}! Novo conto: "${getCurrentStory().title}"`);
-    }
-    return;
-  }
-
-  if (!remote.finished) {
-    victoryModalDismissedForMatch = false;
-    myLocalWords.forEach(w => {
-      if (!remote.claimedWords[w]) {
-        remote.claimedWords[w] = { by: myName, points: 100 };
-      }
-    });
-  }
-  gameState = remote;
-
-  const me = gameState.players[myPlayerId];
-  if (me) {
-    if (typeof me.score === "number") {
-      myLocalScore = Number(me.score);
-    }
-    if (me.status === "eliminated") {
-      openEliminatedModal("Você foi eliminado da partida.");
-      return;
-    }
-    if (me.status === "active") {
-      document.getElementById("eliminatedModal").classList.add("hidden");
-      document.getElementById("repechageModal").classList.add("hidden");
-    }
-    if (me.status === "repechage" && document.getElementById("repechageModal").classList.contains("hidden")) {
-      openRepechageModal();
-    }
-  }
-
-  updateStudentScreenState();
-  renderStudentGame(false);
-
-  if (gameState.finished) {
-    isMathLocked = false;
-    isRecompLocked = false;
-    document.getElementById("mathModal").classList.add("hidden");
-    document.getElementById("recompositionModal").classList.add("hidden");
-    if (!victoryModalDismissedForMatch) {
-      showFinalTop3Modal();
-    }
-  } else if ((!me || me.status === "active") && !isQuizModalCurrentlyOpen()) {
-    checkGlobalMathGateTrigger();
-  }
-}
-
-async function persistStudentActionDirectlyToRoom(msg) {
-  if (!roomPin || !msg || !msg.name) return;
-  const lookup = await dbGetRoom(roomPin, false);
-  if (!lookup || !lookup.ok || !lookup.exists || !lookup.state) return;
-
-  let latest = lookup.state;
-  if (latest.closed) {
-    leaveClosedRoomToJoinScreen("🔒 Esta sala foi encerrada pelo professor. Digite o código de outra sala.");
-    return;
-  }
-
-  if (!latest.players || typeof latest.players !== "object") latest.players = {};
-  if (!latest.claimedWords || typeof latest.claimedWords !== "object") latest.claimedWords = {};
-
-  const canonicalId = makeCanonicalPlayerId(msg.name, msg.cls);
-  if (!latest.players[canonicalId]) {
-    latest.players[canonicalId] = {
-      name: msg.name,
-      cls: msg.cls || "Geral",
-      score: 0,
-      stageScore: 0,
-      words: [],
-      mathSolved: 0,
-      errors: 0,
-      status: "active"
-    };
-  }
-  const p = latest.players[canonicalId];
-
-  if (msg.type === "CLAIM_WORD" && latest.started && !latest.finished) {
-    const eventStage = msg.stage || latest.stage;
-    if (eventStage === latest.stage && p.status === "active" && !latest.claimedWords[msg.word]) {
-      latest.claimedWords[msg.word] = { by: p.name, points: msg.points };
-      p.score = Number(p.score || 0) + Number(msg.points || 0);
-      p.stageScore = Number(p.stageScore || 0) + Number(msg.points || 0);
-      if (!Array.isArray(p.words)) p.words = [];
-      if (!p.words.includes(msg.word)) p.words.push(msg.word);
-    }
-  } else if (msg.type === "MATH_SOLVED") {
-    p.score = Number(p.score || 0) + Number(msg.points || 0);
-    p.stageScore = Number(p.stageScore || 0) + Number(msg.points || 0);
-    p.mathSolved = Number(p.mathSolved || 0) + 1;
-  } else if (msg.type === "REGISTER_ERROR") {
-    p.errors = Number(p.errors || 0) + 1;
-  } else if (msg.type === "RECOMP_ELIMINATED" || msg.type === "REPECHAGE_FAIL") {
-    p.status = "eliminated";
-  } else if (msg.type === "REPECHAGE_PASS") {
-    p.status = "active";
-    p.score = Number(p.score || 0) + 80;
-  }
-
-  const activeStoryObj = (latest.activeStory && Array.isArray(latest.activeStory.words))
-    ? latest.activeStory
-    : STORY_BANK[(latest.storyIdx || 0) % STORY_BANK.length];
-  if (latest.started && !latest.finished && Object.keys(latest.claimedWords).length >= activeStoryObj.words.length) {
-    latest = buildNextStageStateFromCurrent({ ...latest, roomPin });
-  } else {
-    latest.v = (latest.v || 1) + 1;
-  }
-
-  await dbSaveRoom(roomPin, latest, true);
-  if (activeRealtimeChannel && roomChannelReady) {
-    try {
-      activeRealtimeChannel.send({
-        type: "broadcast",
-        event: "room_state",
-        payload: { state: latest }
-      });
-    } catch (e) {}
-  }
-  reconcileRemoteStudentRoomState(latest);
-}
-
-async function dbPushEvent(pin, payloadObj) {
-  broadcastStudentAction(payloadObj);
-  await persistStudentActionDirectlyToRoom(payloadObj);
-  return { ok: true };
-}
-
-async function joinAsStudent(savedSession = null) {
-  const pin = savedSession ? savedSession.pin : document.getElementById("inputPin").value.trim().toUpperCase();
-  const name = savedSession ? savedSession.name : document.getElementById("inputStudentName").value.trim();
-  const cls = savedSession ? savedSession.cls : (document.getElementById("inputStudentClass").value.trim() || "Geral");
-
-  if (!/^[A-Z0-9]{4}$/.test(pin) || !name) {
-    showToast("⚠️ Código inválido ou incompleto! Digite um código de 4 caracteres criado pelo professor e seu nome.");
-    return;
-  }
-
-  myName = name;
-  myClass = cls;
-  roomPin = pin;
-  myPlayerId = makeCanonicalPlayerId(myName, myClass);
-
-  myLocalWords.clear();
-  myLocalScore = 0;
-  victoryModalDismissedForMatch = false;
-  lastMathPromptAtMs = Date.now();
-  playerStreak = 0;
-  lastTriggeredGlobalMilestone = savedSession ? (savedSession.lastTriggeredGlobalMilestone || 0) : 0;
-  solvedMathCount = savedSession ? (savedSession.solvedMathCount || 0) : 0;
-  isMathLocked = false;
-  isRecompLocked = false;
-  if (recompTimerInterval) {
-    clearInterval(recompTimerInterval);
-    recompTimerInterval = null;
-  }
-  repStep = savedSession ? (savedSession.repStep || 0) : 0;
-  lastBuiltGridKey = "";
-  hideAllStudentModals();
-
-  const roomLookup = await dbGetRoom(roomPin, true);
-  if (!roomLookup.ok) {
-    if (savedSession) {
-      clearSessionState();
-      return;
-    }
-    showToast("⚠️ Erro ao consultar a sala no servidor. Tente novamente em instantes.");
-    return;
-  }
-
-  const remoteInitial = roomLookup.exists ? roomLookup.state : null;
-  if (remoteInitial && remoteInitial.grid) {
-    if (remoteInitial.closed || remoteInitial.deletedByAdmin) {
-      leaveClosedRoomToJoinScreen(`🔒 A sala ${roomPin} foi encerrada ou excluída pelo professor.`);
-      return;
-    }
-
-    gameState = remoteInitial;
-
-    const existingMe = gameState.players && gameState.players[myPlayerId];
-    if (existingMe) {
-      myLocalScore = existingMe.score || 0;
-      (existingMe.words || []).forEach(w => {
-        if (gameState.claimedWords[w]) myLocalWords.add(w);
-      });
-      if (savedSession) {
-        showToast(`🔄 Sessão de ${myName} recuperada (${myLocalScore} pts)!`);
-      }
-    }
-
-    if (!savedSession) {
-      lastTriggeredGlobalMilestone = Math.floor(Object.keys(gameState.claimedWords || {}).length / MATH_GATE_INTERVAL) * MATH_GATE_INTERVAL;
-    }
-  } else {
-    if (savedSession) {
-      leaveClosedRoomToJoinScreen(`⚠️ A sala ${roomPin} foi encerrada ou não existe mais.`);
-      return;
-    }
-    showToast(`❌ Sala "${roomPin}" inexistente! Somente códigos gerados por professores logados são válidos.`);
-    return;
-  }
-
-  saveSessionState("student");
-
-  document.getElementById("viewLobby").classList.add("hidden");
-  document.getElementById("viewStudent").classList.remove("hidden");
-  document.getElementById("btnExitRoom").classList.remove("hidden");
-  document.getElementById("studentHeaderName").textContent = myName;
-  document.getElementById("studentHeaderClass").textContent = `(${myClass}) • Sala ${roomPin}`;
-  document.getElementById("waitingRoomCode").textContent = roomPin;
-
-  applyStoryToStudentUI();
-  updateStudentScreenState();
-
-  const meInitial = gameState.players && gameState.players[myPlayerId];
-  if (gameState.started) {
-    renderStudentGame(true);
-    if (meInitial && meInitial.status === "eliminated") {
-      openEliminatedModal("Você foi eliminado desta partida.");
-    } else if (meInitial && meInitial.status === "repechage") {
-      openRepechageModal();
-    } else if (gameState.finished) {
-      showFinalTop3Modal();
-    }
-  }
-
-  const sendJoinOnce = async () => {
-    broadcastStudentAction({
-      type: "JOIN",
-      playerId: myPlayerId,
-      name: myName,
-      cls: myClass
-    });
-    await persistStudentActionDirectlyToRoom({
-      type: "JOIN",
-      playerId: myPlayerId,
-      name: myName,
-      cls: myClass
-    });
-    const hintEl = document.getElementById("studentSyncHint");
-    if (hintEl) {
-      hintEl.textContent = "✅ Conectado à sala ao vivo! Funciona mesmo sem o portal do professor aberto.";
-    }
-  };
-
-  await sendJoinOnce();
-
-  if (joinRetryTimer) clearInterval(joinRetryTimer);
-  joinRetryTimer = setInterval(async () => {
-    if (gameState.players && gameState.players[myPlayerId]) {
-      clearInterval(joinRetryTimer);
-      return;
-    }
-    await sendJoinOnce();
-  }, 6000);
-
-  subscribeRoomRealtime(roomPin, (liveState) => {
-    reconcileRemoteStudentRoomState(liveState);
-  }, null);
-
-  if (pollTimer) clearInterval(pollTimer);
-  pollTimer = setInterval(async () => {
-    if (isQuizModalCurrentlyOpen() || isRoomSyncInFlight) return;
-    isRoomSyncInFlight = true;
-    try {
-      const roomCheck = await dbGetRoom(roomPin, true);
-      if (!roomCheck.ok) return;
-      if (!roomCheck.exists) {
-        if (roomCheck.reason === "not_found" || roomCheck.reason === "invalid_room") {
-          leaveClosedRoomToJoinScreen(`⚠️ A sala ${roomPin} foi encerrada. Digite o código de outra sala.`);
-        }
-        return;
-      }
-      reconcileRemoteStudentRoomState(roomCheck.state);
-    } finally {
-      isRoomSyncInFlight = false;
-    }
-  }, STUDENT_POLL_INTERVAL_MS);
-}
-
-function updateStudentScreenState() {
-  const waitingBox = document.getElementById("studentWaitingLobby");
-  const gameArea = document.getElementById("studentGameArea");
-
-  if (!gameState.started) {
-    waitingBox.classList.remove("hidden");
-    gameArea.classList.add("hidden");
-    setNetStatus("", "Aguardando Professor");
-    document.getElementById("mathGateIndicator").textContent = "⏳ Aguardando início";
-
-    const playersObj = { ...gameState.players };
-    if (!playersObj[myPlayerId]) {
-      playersObj[myPlayerId] = { name: myName, cls: myClass };
-    }
-    const list = Object.entries(playersObj);
-    document.getElementById("waitingPlayersCount").textContent = list.length;
-    document.getElementById("waitingPlayersList").innerHTML = list.map(([id, p]) =>
-      `<span class="player-pill-tag ${id === myPlayerId ? 'me' : ''}">${id === myPlayerId ? '⭐ ' : '🎓 '}${p.name} (${p.cls})</span>`
-    ).join("");
-  } else {
-    waitingBox.classList.add("hidden");
-    gameArea.classList.remove("hidden");
-    setNetStatus("online", "Ao Vivo (" + roomPin + ")");
-  }
-}
-
-function applyStoryToStudentUI() {
-  const story = getCurrentStory();
-  document.getElementById("studentStoryTitle").textContent = `📜 Fase ${gameState.stage}: "${story.title}"`;
-  document.getElementById("storyContainer").innerHTML = story.html;
-}
-
-function renderStudentGame(forceRebuildGrid = false) {
-  if (!gameState.started) return;
-
-  const story = getCurrentStory();
-  const wordClassMap = getWordClassMap();
-
-  const remoteMe = gameState.players[myPlayerId];
-  const displayScore = remoteMe && typeof remoteMe.score === "number"
-    ? Number(remoteMe.score)
-    : Number(myLocalScore);
-  document.getElementById("studentScore").textContent = displayScore;
-
-  const totalClaimedInRoom = Object.keys(gameState.claimedWords).length;
-  const mod = totalClaimedInRoom % MATH_GATE_INTERVAL;
-  document.getElementById("mathGateIndicator").textContent =
-    isRecompLocked
-      ? "🛠️ Em Recomposição!"
-      : (isMathLocked
-        ? "🔒 Portal Matemático Ativo!"
-        : `🧮 Portal da Turma: ${mod}/${MATH_GATE_INTERVAL} pal. (3m)`);
-
-  document.getElementById("studentRemaining").textContent = Math.max(0, story.words.length - totalClaimedInRoom);
-
-  document.querySelectorAll(".word-tag").forEach(tag => {
-    const w = tag.getAttribute("data-w");
-    if (gameState.claimedWords[w]) {
-      const color = CLASS_COLORS[wordClassMap[w]] || "#10b981";
-      tag.classList.add("solved");
-      tag.style.backgroundColor = color;
-    } else {
-      tag.classList.remove("solved");
-      tag.style.backgroundColor = "";
-    }
-  });
-
-  const chipsEl = document.getElementById("studentWordChips");
-  chipsEl.innerHTML = story.words.map(item => {
-    const claim = gameState.claimedWords[item.word];
-    const color = CLASS_COLORS[item.cls] || "#10b981";
-    if (claim) {
-      return `<div class="chip claimed" style="background:${color};">🔒 ${item.display} (${item.cls}) — ${claim.by}</div>`;
-    }
-    return `<div class="chip">${item.display}</div>`;
-  }).join("");
-
-  const gridEl = document.getElementById("wsGrid");
-  const gridKey = `${roomPin}_${gameState.stage}_${gameState.storyIdx}`;
-
-  if (forceRebuildGrid || lastBuiltGridKey !== gridKey || gridEl.children.length !== GRID_SIZE * GRID_SIZE) {
-    lastBuiltGridKey = gridKey;
-    gridEl.innerHTML = "";
-    for (let r = 0; r < GRID_SIZE; r++) {
-      for (let c = 0; c < GRID_SIZE; c++) {
-        const cell = document.createElement("div");
-        cell.className = "cell";
-        cell.dataset.r = r;
-        cell.dataset.c = c;
-        cell.textContent = gameState.grid[r][c];
-        gridEl.appendChild(cell);
-      }
-    }
-  }
-
-  const coordColorMap = {};
-  gameState.wordPlacements.forEach(p => {
-    if (gameState.claimedWords[p.word]) {
-      const color = CLASS_COLORS[wordClassMap[p.word]] || "#10b981";
-      p.coords.forEach(c => { coordColorMap[c] = color; });
-    }
-  });
-
-  for (let i = 0; i < gridEl.children.length; i++) {
-    const cell = gridEl.children[i];
-    const key = `${cell.dataset.r},${cell.dataset.c}`;
-    if (coordColorMap[key]) {
-      cell.classList.add("found");
-      cell.style.background = coordColorMap[key];
-    } else {
-      cell.classList.remove("found");
-      cell.style.background = "";
-    }
-  }
-}
-
-function checkGlobalMathGateTrigger() {
-  if (isMathLocked || isRecompLocked || gameState.finished || !gameState.started) return true;
-  if (isQuizModalCurrentlyOpen()) return false;
-
-  const now = Date.now();
-  if (lastMathPromptAtMs && (now - lastMathPromptAtMs < MATH_PERSONAL_COOLDOWN_MS)) return false;
-
-  const totalClaimedInRoom = Object.keys(gameState.claimedWords).length;
-  const story = getCurrentStory();
-  if (totalClaimedInRoom >= story.words.length) return false;
-
-  const currentMilestone = Math.floor(totalClaimedInRoom / MATH_GATE_INTERVAL) * MATH_GATE_INTERVAL;
-  const triggeredByWords = currentMilestone >= MATH_GATE_INTERVAL && currentMilestone > lastTriggeredGlobalMilestone;
-  const triggeredByTime = !!(lastMathPromptAtMs && (now - lastMathPromptAtMs >= MATH_TIME_INTERVAL_MS));
-
-  if (triggeredByWords || triggeredByTime) {
-    if (triggeredByWords) lastTriggeredGlobalMilestone = currentMilestone;
-    saveSessionState("student");
-    openMathLockModal(triggeredByWords ? `${currentMilestone} palavras` : "3 minutos de partida");
-    return true;
-  }
-  return false;
-}
-
-function openMathLockModal(reasonLabel) {
-  if (isQuizModalCurrentlyOpen()) return;
-  isMathLocked = true;
-  lastMathPromptAtMs = Date.now();
-  mathAttempts = 0;
-  isDragging = false;
-  clearAllSelectionVisuals();
-  const countTxt = reasonLabel || `a cada ${MATH_GATE_INTERVAL} palavras ou 3 min`;
-  document.getElementById("mathTriggerReason").textContent = `Desafio matemático ativado (${countTxt})! Resolva a operação abaixo (máximo 3 tentativas antes da recomposição):`;
-  document.getElementById("mathAttemptsBadge").textContent = "Tentativas restantes: 3 de 3";
-  loadFreshMathQuestionInPortal();
-  document.getElementById("mathModal").classList.remove("hidden");
-  if (isBotModeActive) renderBotTestUI(false);
-  else renderStudentGame(false);
-}
-
-function loadFreshMathQuestionInPortal() {
-  currentMathChallenge = generateDynamicMathQuestion();
-  document.getElementById("mathOpBadge").textContent = currentMathChallenge.op;
-  document.getElementById("mathQuestionBox").textContent = currentMathChallenge.question;
-
-  const optsEl = document.getElementById("mathOptionsContainer");
-  optsEl.innerHTML = "";
-  currentMathChallenge.options.forEach(opt => {
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.className = "math-btn";
-    btn.textContent = opt;
-    btn.addEventListener("click", () => submitMathAnswer(opt));
-    optsEl.appendChild(btn);
-  });
-}
-
-async function submitMathAnswer(chosenOpt) {
-  if (!currentMathChallenge) return;
-
-  if (String(chosenOpt) === String(currentMathChallenge.correct)) {
-    const bonusPts = mathAttempts === 0 ? 80 : 50;
-    isMathLocked = false;
-    lastMathPromptAtMs = Date.now();
-    mathAttempts = 0;
-    document.getElementById("mathModal").classList.add("hidden");
-    document.getElementById("mathHint").classList.add("hidden");
-    currentMathChallenge = null;
-
-    if (isBotModeActive) {
-      const human = botPlayers.find(p => p.isHuman);
-      if (human) human.score += bonusPts;
-      showToast(`🧮 Questão resolvida! +${bonusPts} pts!`);
-      renderBotTestUI(false);
-      if (Object.keys(botClaimedWords).length >= botStory.words.length) {
-        showBotTestRankingModal();
-      }
-      return;
-    }
-
-    solvedMathCount++;
-    myLocalScore += bonusPts;
-    if (gameState.players && gameState.players[myPlayerId]) {
-      gameState.players[myPlayerId].score = Number(gameState.players[myPlayerId].score || 0) + bonusPts;
-    }
-    saveSessionState("student");
-
-    showToast(`🧮 Questão resolvida! +${bonusPts} pts de matemática!`);
-    renderStudentGame(false);
-
-    await Promise.all([
-      dbPushEvent(roomPin, {
-        type: "MATH_SOLVED",
-        playerId: myPlayerId,
-        name: myName,
-        cls: myClass,
-        points: bonusPts
-      }),
-      pushScoreToGlobalLeaderboard(bonusPts, 0, 1)
-    ]);
-  } else {
-    mathAttempts++;
-    const remainingTries = Math.max(0, 3 - mathAttempts);
-    if (!isBotModeActive) {
-      await dbPushEvent(roomPin, { type: "REGISTER_ERROR", playerId: myPlayerId, name: myName, cls: myClass });
-    }
-
-    if (mathAttempts >= 3) {
-      isMathLocked = false;
-      mathAttempts = 0;
-      currentMathChallenge = null;
-      document.getElementById("mathModal").classList.add("hidden");
-      document.getElementById("mathHint").classList.add("hidden");
-      openRecompositionModal();
-      return;
-    }
-
-    document.getElementById("mathAttemptsBadge").textContent = `Tentativas restantes: ${remainingTries} de 3`;
-    const hintBox = document.getElementById("mathHint");
-    hintBox.textContent = `❌ Resposta incorreta! Nova pergunta gerada (${remainingTries} tentativa(s) restante(s)):`;
-    hintBox.classList.remove("hidden");
-    loadFreshMathQuestionInPortal();
-  }
-}
-
-function formatSecondsMMSS(totalSec) {
-  const safe = Math.max(0, totalSec);
-  const mins = Math.floor(safe / 60);
-  const secs = safe % 60;
-  return `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
-}
-
-function ensureRecompCountdownLoop() {
-  if (recompTimerInterval) return;
-  recompTimerInterval = setInterval(() => {
-    if (!isRecompLocked) {
-      clearInterval(recompTimerInterval);
-      recompTimerInterval = null;
-      return;
-    }
-    recompSecondsLeft = Math.max(0, recompSecondsLeft - 1);
-    const displayEl = document.getElementById("recompTimerDisplay");
-    if (displayEl) displayEl.textContent = formatSecondsMMSS(recompSecondsLeft);
-
-    const timerAreaVisible = !document.getElementById("recompTimerArea")?.classList.contains("hidden");
-    if (timerAreaVisible) {
-      document.getElementById("recompModeBadge").textContent = `ESPERA: ${formatSecondsMMSS(recompSecondsLeft)}`;
-    }
-
-    if (recompSecondsLeft <= 0) {
-      clearInterval(recompTimerInterval);
-      recompTimerInterval = null;
-      finishRecomposition("⏳ Tempo de 1 minuto concluído! Tabuleiro liberado.");
-    }
-  }, 1000);
-}
-
-function openRecompositionModal() {
-  isRecompLocked = true;
-  isDragging = false;
-  clearAllSelectionVisuals();
-  recompSecondsLeft = RECOMP_WAIT_SECONDS;
-  recompMathProgress = 0;
-  recompMathErrors = 0;
-  currentRecompMathQuestion = null;
-
-  document.getElementById("recompTimerDisplay").textContent = formatSecondsMMSS(recompSecondsLeft);
-  document.getElementById("recompositionModal").classList.remove("hidden");
-  ensureRecompCountdownLoop();
-  activateRecompTimer();
-
-  if (isBotModeActive) renderBotTestUI(false);
-  else renderStudentGame(false);
-}
-
-function activateRecompTimer() {
-  ensureRecompCountdownLoop();
-  document.getElementById("recompModeBadge").textContent = `ESPERA: ${formatSecondsMMSS(recompSecondsLeft)}`;
-  document.getElementById("recompTimerDisplay").textContent = formatSecondsMMSS(recompSecondsLeft);
-  document.getElementById("recompTimerArea").classList.remove("hidden");
-  document.getElementById("recompMathArea").classList.add("hidden");
-}
-
-function activateRecompMath3() {
-  ensureRecompCountdownLoop();
-  recompMathProgress = 0;
-  recompMathErrors = 0;
-  document.getElementById("recompTimerArea").classList.add("hidden");
-  document.getElementById("recompMathArea").classList.remove("hidden");
-  document.getElementById("recompMathHint").classList.add("hidden");
-  document.getElementById("recompMathErrorsBadge").textContent = "Erros na recomposição: 0 de 3";
-  loadNextRecompMathQuestion();
-}
-
-function loadNextRecompMathQuestion() {
-  currentRecompMathQuestion = generateDynamicMathQuestion();
-  document.getElementById("recompModeBadge").textContent = `META: ${recompMathProgress}/3 • ${currentRecompMathQuestion.op}`;
-  document.getElementById("recompMathQuestionBox").textContent = currentRecompMathQuestion.question;
-
-  const optsEl = document.getElementById("recompMathOptionsContainer");
-  optsEl.innerHTML = "";
-  currentRecompMathQuestion.options.forEach(opt => {
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.className = "repechage-btn";
-    btn.textContent = opt;
-    btn.addEventListener("click", () => submitRecompMathAnswer(opt));
-    optsEl.appendChild(btn);
-  });
-}
-
-async function submitRecompMathAnswer(chosenOpt) {
-  if (!currentRecompMathQuestion) return;
-
-  if (String(chosenOpt) === String(currentRecompMathQuestion.correct)) {
-    recompMathProgress++;
-    document.getElementById("recompMathHint").classList.add("hidden");
-    if (recompMathProgress >= 3) {
-      finishRecomposition("🧮 Você acertou as 3 contas! Tabuleiro liberado imediatamente.");
-    } else {
-      showToast(`✅ Acertou! Faltam ${3 - recompMathProgress} conta(s) para voltar ao tabuleiro.`);
-      loadNextRecompMathQuestion();
-    }
-  } else {
-    recompMathErrors++;
-    recompMathProgress = 0;
-    if (!isBotModeActive) {
-      await dbPushEvent(roomPin, { type: "REGISTER_ERROR", playerId: myPlayerId, name: myName, cls: myClass });
-    }
-
-    if (recompMathErrors >= 3) {
-      if (recompTimerInterval) {
-        clearInterval(recompTimerInterval);
-        recompTimerInterval = null;
-      }
-      isRecompLocked = false;
-      currentRecompMathQuestion = null;
-      document.getElementById("recompositionModal").classList.add("hidden");
-      if (!isBotModeActive) {
-        if (gameState.players[myPlayerId]) {
-          gameState.players[myPlayerId].status = "eliminated";
-        }
-        await dbPushEvent(roomPin, { type: "RECOMP_ELIMINATED", playerId: myPlayerId, name: myName, cls: myClass });
-        openEliminatedModal("Você errou 3 contas durante a recomposição e foi eliminado da partida.");
-      } else {
-        showToast("🚫 Na sala real, 3 erros na recomposição eliminam o jogador!");
-      }
-      return;
-    }
-
-    document.getElementById("recompMathErrorsBadge").textContent = `Erros na recomposição: ${recompMathErrors} de 3`;
-    const hintEl = document.getElementById("recompMathHint");
-    hintEl.textContent = `❌ Errou (${recompMathErrors}/3)! Sequência zerada — resolva esta nova conta:`;
-    hintEl.classList.remove("hidden");
-    loadNextRecompMathQuestion();
-  }
-}
-
-function finishRecomposition(toastMessage) {
-  if (recompTimerInterval) {
-    clearInterval(recompTimerInterval);
-    recompTimerInterval = null;
-  }
-  isRecompLocked = false;
-  lastMathPromptAtMs = Date.now();
-  recompSecondsLeft = RECOMP_WAIT_SECONDS;
-  recompMathProgress = 0;
-  recompMathErrors = 0;
-  currentRecompMathQuestion = null;
-  document.getElementById("recompositionModal").classList.add("hidden");
-  showToast(toastMessage);
-
-  if (isBotModeActive) {
-    renderBotTestUI(false);
-    if (Object.keys(botClaimedWords).length >= botStory.words.length) {
-      showBotTestRankingModal();
-    }
-  } else {
-    renderStudentGame(false);
-  }
-}
-
-function openRepechageModal() {
-  hideAllStudentModals();
-  if (repStep === 0) repStep = 1;
-  saveSessionState("student");
-  renderRepechageQuestion();
-  document.getElementById("repechageModal").classList.remove("hidden");
-}
-
-function renderRepechageQuestion() {
-  currentRepQuestion = generateDynamicMathQuestion();
-  document.getElementById("repProgressBadge").textContent = `QUESTÃO ${repStep} DE 3 • ${currentRepQuestion.op}`;
-  document.getElementById("repQuestionBox").textContent = currentRepQuestion.question;
-
-  const optsEl = document.getElementById("repOptionsContainer");
-  optsEl.innerHTML = "";
-  currentRepQuestion.options.forEach(opt => {
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.className = "repechage-btn";
-    btn.textContent = opt;
-    btn.addEventListener("click", () => submitRepechageAnswer(opt));
-    optsEl.appendChild(btn);
-  });
-}
-
-async function submitRepechageAnswer(chosenOpt) {
-  if (!currentRepQuestion) return;
-
-  if (String(chosenOpt) === String(currentRepQuestion.correct)) {
-    if (repStep < 3) {
-      repStep++;
-      saveSessionState("student");
-      showToast(`✅ Acertou! Falta(m) ${4 - repStep} pergunta(s) para voltar ao jogo!`);
-      renderRepechageQuestion();
-    } else {
-      repStep = 0;
-      currentRepQuestion = null;
-      saveSessionState("student");
-      document.getElementById("repechageModal").classList.add("hidden");
-      if (gameState.players[myPlayerId]) {
-        gameState.players[myPlayerId].status = "active";
-        gameState.players[myPlayerId].score = Number(gameState.players[myPlayerId].score || 0) + 80;
-      }
-      myLocalScore += 80;
-      showToast(`🔥 INCRÍVEL! Você acertou as 3 contas e voltou para a Fase ${gameState.stage}!`);
-      await Promise.all([
-        dbPushEvent(roomPin, { type: "REPECHAGE_PASS", playerId: myPlayerId, name: myName, cls: myClass }),
-        pushScoreToGlobalLeaderboard(80, 0, 3)
-      ]);
-      renderStudentGame(false);
-    }
-  } else {
-    const failedStep = repStep || 1;
-    repStep = 0;
-    saveSessionState("student");
-    document.getElementById("repechageModal").classList.add("hidden");
-    if (gameState.players[myPlayerId]) {
-      gameState.players[myPlayerId].status = "eliminated";
-    }
-    await dbPushEvent(roomPin, { type: "REPECHAGE_FAIL", playerId: myPlayerId, name: myName, cls: myClass });
-    openEliminatedModal(`Você errou a ${failedStep}ª pergunta da repescagem (a resposta certa era ${currentRepQuestion.correct}) e foi eliminado da partida.`);
-  }
-}
-
-function openEliminatedModal(reason) {
-  if (!roomPin || gameState.closed || gameState.deletedByAdmin) {
-    leaveClosedRoomToJoinScreen("🔒 Esta sala foi encerrada pelo professor. Entre em outra sala.");
-    return;
-  }
-  hideAllStudentModals();
-  document.getElementById("elimReasonText").textContent = reason;
-  document.getElementById("elimScore").textContent = myLocalScore + " pts";
-  document.getElementById("eliminatedModal").classList.remove("hidden");
-}
-
-function showFinalTop3Modal() {
-  if (victoryModalDismissedForMatch) return;
-  hideAllStudentModals();
-
-  const ranked = sortPlayersByTotalScore(Object.entries(gameState.players), true);
-  const topList = ranked.slice(0, 3).map(([_, p]) => p);
-  const isTwoPlayersMatch = ranked.length <= 2;
-  const isMeFirst = ranked.length > 0 && ranked[0][0] === myPlayerId && (ranked[0][1].score || 0) > 0;
-  const medals = isTwoPlayersMatch
-    ? ["👑 VENCEDOR (1º)", "🥈 2º Lugar"]
-    : ["🥇 1º Lugar", "🥈 2º Lugar", "🥉 3º Lugar"];
-
-  document.getElementById("victoryModalTitle").textContent = isMeFirst
-    ? "VOCÊ VENCEU!"
-    : (isTwoPlayersMatch ? "Vencedor da Partida!" : "Pódio Oficial dos 3 Vencedores!");
-  document.getElementById("victoryModalSubtitle").textContent = isMeFirst
-    ? `Parabéns, ${myName}! Você venceu a partida!`
-    : (isTwoPlayersMatch
-      ? `Partida encerrada! Confira o vencedor e o placar final:`
-      : "O torneio foi encerrado! Confira os 3 grandes campeões da sala:");
-  document.getElementById("finalTop3List").innerHTML = topList.map((p, idx) => `
-    <div style="padding:10px 0; border-bottom:${idx < topList.length - 1 ? '1px solid var(--border)' : 'none'}; display:flex; justify-content:space-between; align-items:center;">
-      <div>
-        <strong style="color:var(--gold);">${medals[idx] || ("#" + (idx + 1))}:</strong> <strong>${p.name}</strong>
-        <span style="font-size:0.82rem; color:var(--text-muted);">(${p.cls})</span>
-      </div>
-      <strong style="color:var(--success);">${p.score} pts</strong>
-    </div>
-  `).join("");
-
-  configureWinnerModalStyle(isMeFirst);
-  document.getElementById("victoryModal").classList.remove("hidden");
-}
-
-let isDragging = false;
-let startCell = null;
-let currentSelection = [];
-
-function attachGridPointerEvents(gridElement, isBotGrid) {
-  if (!gridElement) return;
-  gridElement.addEventListener("pointerdown", (e) => {
-    e.preventDefault();
-    if (isRecompLocked) {
-      document.getElementById("recompositionModal").classList.remove("hidden");
-      return;
-    }
-    if (isMathLocked) {
-      if (!currentMathChallenge) loadFreshMathQuestionInPortal();
-      document.getElementById("mathModal").classList.remove("hidden");
-      return;
-    }
-    if (!isBotGrid) {
-      if (!gameState.started) return;
-      const me = gameState.players[myPlayerId];
-      if (me && me.status === "eliminated") return;
-      if (me && me.status === "repechage") { openRepechageModal(); return; }
-    }
-
-    const cell = e.target.closest(".cell");
-    if (!cell) return;
-    isDragging = true;
-    startCell = { r: parseInt(cell.dataset.r), c: parseInt(cell.dataset.c) };
-    updateSelection(gridElement, startCell);
-  });
-
-  gridElement.addEventListener("pointermove", (e) => {
-    if (!isDragging || !startCell || isMathLocked || isRecompLocked) return;
-    e.preventDefault();
-    const el = document.elementFromPoint(e.clientX, e.clientY);
-    const cell = el ? el.closest(".cell") : null;
-    if (!cell) return;
-    updateSelection(gridElement, { r: parseInt(cell.dataset.r), c: parseInt(cell.dataset.c) });
-  });
-}
-
-attachGridPointerEvents(document.getElementById("wsGrid"), false);
-attachGridPointerEvents(document.getElementById("botWsGrid"), true);
-
-window.addEventListener("pointerup", () => {
-  if (!isDragging) return;
-  isDragging = false;
-  if (!isMathLocked && !isRecompLocked) {
-    if (isBotModeActive) checkBotWordSelection();
-    else if (gameState.started) checkSelectedWord();
-  }
-  clearAllSelectionVisuals();
-});
-
-window.addEventListener("pointercancel", () => {
-  if (!isDragging) return;
-  isDragging = false;
-  clearAllSelectionVisuals();
-});
-
-function updateSelection(gridElement, endCell) {
-  clearAllSelectionVisuals();
-  const dr = endCell.r - startCell.r;
-  const dc = endCell.c - startCell.c;
-  const steps = Math.max(Math.abs(dr), Math.abs(dc));
-
-  if (steps === 0) {
-    currentSelection = [startCell];
-  } else if (dr === 0 || dc === 0 || Math.abs(dr) === Math.abs(dc)) {
-    const stepR = dr === 0 ? 0 : dr / steps;
-    const stepC = dc === 0 ? 0 : dc / steps;
-    currentSelection = [];
-    for (let i = 0; i <= steps; i++) {
-      currentSelection.push({ r: startCell.r + stepR * i, c: startCell.c + stepC * i });
-    }
-  } else {
-    currentSelection = [startCell];
-  }
-
-  currentSelection.forEach(pos => {
-    const el = gridElement.querySelector(`.cell[data-r="${pos.r}"][data-c="${pos.c}"]`);
-    if (el) el.classList.add("selected");
-  });
-}
-
-function clearAllSelectionVisuals() {
-  document.querySelectorAll(".cell.selected").forEach(el => el.classList.remove("selected"));
-}
-
-function checkBotWordSelection() {
-  if (currentSelection.length < 1) return;
-  const str = currentSelection.map(pos => botGrid[pos.r][pos.c]).join("");
-  const rev = str.split("").reverse().join("");
-  const found = botStory.words.find(w => w.word === str || w.word === rev);
-  if (!found) return;
-  if (botClaimedWords[found.word]) {
-    showToast(`Já encontrada por ${botClaimedWords[found.word].by}!`);
-    return;
-  }
-  openQuizModal(found);
-}
-
-function checkSelectedWord() {
-  if (currentSelection.length < 1) return;
-  const selectedStr = currentSelection.map(pos => gameState.grid[pos.r][pos.c]).join("");
-  const reversedStr = selectedStr.split("").reverse().join("");
-  const story = getCurrentStory();
-
-  const foundObj = story.words.find(item => item.word === selectedStr || item.word === reversedStr);
-  if (!foundObj) return;
-
-  if (gameState.claimedWords[foundObj.word]) {
-    showToast(`Essa palavra já foi conquistada por ${gameState.claimedWords[foundObj.word].by}!`);
-    return;
-  }
-
-  openQuizModal(foundObj);
-}
-
-function renderQuizOptionsButtons() {
-  const optsEl = document.getElementById("classOptionsContainer");
-  optsEl.innerHTML = "";
-  GRAMMAR_CLASSES.forEach(cls => {
-    const isWrong = wrongQuizClasses.has(cls);
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.className = "class-btn";
-    btn.disabled = isWrong;
-    if (isWrong) {
-      btn.style.opacity = "0.75";
-      btn.style.background = "rgba(244, 63, 94, 0.18)";
-      btn.style.borderColor = "#f43f5e";
-      btn.style.color = "#fda4af";
-      btn.style.textDecoration = "line-through";
-    }
-    btn.innerHTML = `<span class="color-dot" style="background:${CLASS_COLORS[cls]};"></span> ${cls}${isWrong ? " ✕" : ""}`;
-    btn.addEventListener("click", () => submitClassAnswer(cls));
-    optsEl.appendChild(btn);
-  });
-}
-
-function openQuizModal(wordObj) {
-  if (isMathLocked || isRecompLocked) return;
-  activeQuizWord = wordObj;
-  quizAttempts = 0;
-  wrongQuizClasses = new Set();
-  document.getElementById("modalWordText").textContent = `${wordObj.display} (Tentativa 1/${MAX_QUIZ_ATTEMPTS})`;
-  document.getElementById("modalContextSentence").textContent = wordObj.sentence;
-  document.getElementById("modalHint").classList.add("hidden");
-
-  renderQuizOptionsButtons();
-  document.getElementById("quizModal").classList.remove("hidden");
-}
-
-function closeQuizModal(shouldCheckMathAfter = false) {
-  document.getElementById("quizModal").classList.add("hidden");
-  activeQuizWord = null;
-  wrongQuizClasses = new Set();
-  if (shouldCheckMathAfter && !isBotModeActive && gameState.started && !gameState.finished) {
-    checkGlobalMathGateTrigger();
-  }
-}
-
-async function submitClassAnswer(chosenClass) {
-  if (!activeQuizWord || wrongQuizClasses.has(chosenClass)) return;
-
-  if (isBotModeActive) {
-    if (botClaimedWords[activeQuizWord.word]) {
-      closeQuizModal(true);
-      showToast("⚡ Um bot pegou antes de você!");
-      return;
-    }
-    if (chosenClass === activeQuizWord.cls) {
-      const pts = quizAttempts === 0 ? 100 : 70;
-      const w = activeQuizWord.word;
-      closeQuizModal(false);
-      botClaimedWords[w] = { by: myName + " (Você)", points: pts };
-      const human = botPlayers.find(p => p.isHuman);
-      if (human) human.score += pts;
-      renderBotTestUI(false);
-
-      const openedMath = triggerBotModeMathIfNeeded();
-      if (!openedMath) {
-        showToast(`🎯 Correto! +${pts} pts!`);
-        if (Object.keys(botClaimedWords).length >= botStory.words.length) {
-          clearInterval(botTimer);
-          showBotTestRankingModal();
-        }
-      }
-    } else {
-      quizAttempts++;
-      wrongQuizClasses.add(chosenClass);
-      playerStreak = 0;
-      renderQuizOptionsButtons();
-      const hintBox = document.getElementById("modalHint");
-      if (quizAttempts >= MAX_QUIZ_ATTEMPTS) {
-        const wordDisplay = activeQuizWord.display;
-        closeQuizModal(true);
-        showToast(`❌ Esgotaram as ${MAX_QUIZ_ATTEMPTS} tentativas em ${wordDisplay}! Continue buscando no tabuleiro.`);
-        return;
-      }
-      const left = MAX_QUIZ_ATTEMPTS - quizAttempts;
-      document.getElementById("modalWordText").textContent = `${activeQuizWord.display} (Tentativa ${quizAttempts + 1}/${MAX_QUIZ_ATTEMPTS})`;
-      hintBox.textContent = `❌ "${chosenClass}" incorreto (${left} tentativa(s) restante(s)). Dica: ${activeQuizWord.hint}`;
-      hintBox.classList.remove("hidden");
-    }
-    return;
-  }
-
-  if (!gameState.started) return;
-
-  if (gameState.claimedWords[activeQuizWord.word]) {
-    closeQuizModal(true);
-    showToast(`⚡ Alguém respondeu antes de você!`);
-    return;
-  }
-
-  if (chosenClass === activeQuizWord.cls) {
-    playerStreak += 1;
-    const streakBonus = playerStreak >= 3 ? 10 : 0;
-    const earnedPoints = (quizAttempts === 0 ? 100 : 70) + streakBonus;
-    const wordToClaim = activeQuizWord.word;
-    closeQuizModal(false);
-
-    myLocalWords.add(wordToClaim);
-    myLocalScore += earnedPoints;
-    if (gameState.players && gameState.players[myPlayerId]) {
-      gameState.players[myPlayerId].score = Number(gameState.players[myPlayerId].score || 0) + earnedPoints;
-    }
-    gameState.claimedWords[wordToClaim] = { by: myName, points: earnedPoints };
-
-    renderStudentGame(false);
-
-    const locked = checkGlobalMathGateTrigger();
-    if (!locked) {
-      showToast(
-        streakBonus > 0
-          ? `🔥 Sequência de ${playerStreak}! +${earnedPoints} pts (+${streakBonus} bônus)!`
-          : `🎯 Palavra classificada! +${earnedPoints} pts!`
-      );
-    }
-
-    await Promise.all([
-      dbPushEvent(roomPin, {
-        type: "CLAIM_WORD",
-        playerId: myPlayerId,
-        name: myName,
-        cls: myClass,
-        stage: gameState.stage,
-        word: wordToClaim,
-        points: earnedPoints
-      }),
-      pushScoreToGlobalLeaderboard(earnedPoints, 1, 0)
-    ]);
-  } else {
-    quizAttempts++;
-    wrongQuizClasses.add(chosenClass);
-    playerStreak = 0;
-    renderQuizOptionsButtons();
-    await dbPushEvent(roomPin, { type: "REGISTER_ERROR", playerId: myPlayerId, name: myName, cls: myClass });
-
-    if (quizAttempts >= MAX_QUIZ_ATTEMPTS) {
-      const wordDisplay = activeQuizWord.display;
-      closeQuizModal(true);
-      showToast(`❌ Você atingiu o limite de ${MAX_QUIZ_ATTEMPTS} tentativas em ${wordDisplay}!`);
-      return;
-    }
-
-    const left = MAX_QUIZ_ATTEMPTS - quizAttempts;
-    document.getElementById("modalWordText").textContent = `${activeQuizWord.display} (Tentativa ${quizAttempts + 1}/${MAX_QUIZ_ATTEMPTS})`;
-    const hintBox = document.getElementById("modalHint");
-    hintBox.textContent = `❌ "${chosenClass}" incorreto (${left} tentativa(s) restante(s)). Explicação: ${activeQuizWord.hint}`;
-    hintBox.classList.remove("hidden");
-  }
-}
-
 function bindGlobalLifecycleListeners() {
   document.addEventListener("backbutton", (e) => {
-    const inLobby = !document.getElementById("viewLobby").classList.contains("hidden");
+    const inLobby = !document.getElementById("viewLobby")?.classList.contains("hidden");
     if (inLobby) return;
     if (e && typeof e.preventDefault === "function") e.preventDefault();
     showToast("Use o botão 'Sair' no topo para encerrar ou sair da sala com segurança.");
@@ -3001,7 +1027,7 @@ function bindGlobalLifecycleListeners() {
 
   document.addEventListener("visibilitychange", async () => {
     if (document.hidden || !roomPin || isBotModeActive || isRoomSyncInFlight) return;
-    if (!document.getElementById("viewStudent").classList.contains("hidden")) {
+    if (!document.getElementById("viewStudent")?.classList.contains("hidden")) {
       isRoomSyncInFlight = true;
       try {
         const roomCheck = await dbGetRoom(roomPin, true);
@@ -3016,12 +1042,19 @@ function bindGlobalLifecycleListeners() {
 }
 
 async function bootApp() {
+  openRoleGateway();
   loadRoomHistoryLocal();
   renderLegends();
   renderModeratorsUI();
   renderRoomHistoryPanel();
   renderDeletedRoomsFolder();
   bindGlobalLifecycleListeners();
+
+  Promise.all([
+    syncCloudStoriesBank().catch(() => {}),
+    fetchGlobalBotTestFlag().catch(() => {}),
+    loadBestPlayersRanking().catch(() => {})
+  ]);
 
   try {
     const savedAuth = localStorage.getItem("csi_teacher_auth");
