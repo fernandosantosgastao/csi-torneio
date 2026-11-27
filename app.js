@@ -113,6 +113,8 @@ const STORIES = [
   }
 ];
 
+const VALID_ROUTES = ["/", "/painel-de-controle", "/gerador-de-salas", "/salas-online"];
+
 let authSession = null;
 let currentProfile = null;
 let moderatorsEmails = [];
@@ -182,19 +184,19 @@ function updateNavVisibility() {
 function normalizePath(pathname) {
   const p = String(pathname || "/").replace(/\/+$/, "") || "/";
   if (p === "/index.html") return "/";
-  if (["/", "/control-painel", "/create-class", "/salas-online"].includes(p)) return p;
+  if (VALID_ROUTES.includes(p)) return p;
   return "/";
 }
 
 async function navigateToRoute(targetPath, replaceState = false) {
   const route = normalizePath(targetPath);
 
-  if (route === "/control-painel" && !canAccessControlPanel()) {
+  if (route === "/painel-de-controle" && !canAccessControlPanel()) {
     toast("Acesso restrito a administradores e moderadores autorizados.");
     return navigateToRoute("/", replaceState);
   }
 
-  if (route === "/create-class" && !authSession) {
+  if (route === "/gerador-de-salas" && !authSession) {
     toast("Faça login como professor para acessar o gerador de salas.");
   }
 
@@ -207,8 +209,8 @@ async function navigateToRoute(targetPath, replaceState = false) {
   document.querySelectorAll(".route-view").forEach(sec => sec.classList.add("hidden"));
   document.getElementById("navHomeBtn")?.classList.toggle("active", route === "/");
   document.getElementById("navSalas24hBtn")?.classList.toggle("active", route === "/salas-online");
-  document.getElementById("navCreateClassBtn")?.classList.toggle("active", route === "/create-class");
-  document.getElementById("navControlPanelBtn")?.classList.toggle("active", route === "/control-painel");
+  document.getElementById("navCreateClassBtn")?.classList.toggle("active", route === "/gerador-de-salas");
+  document.getElementById("navControlPanelBtn")?.classList.toggle("active", route === "/painel-de-controle");
 
   if (route === "/") {
     document.getElementById("routeHome")?.classList.remove("hidden");
@@ -216,10 +218,10 @@ async function navigateToRoute(targetPath, replaceState = false) {
   } else if (route === "/salas-online") {
     document.getElementById("routeSalasOnline")?.classList.remove("hidden");
     syncSalas24hView();
-  } else if (route === "/create-class") {
+  } else if (route === "/gerador-de-salas") {
     document.getElementById("routeCreateClass")?.classList.remove("hidden");
     syncTeacherGeneratorView();
-  } else if (route === "/control-painel") {
+  } else if (route === "/painel-de-controle") {
     document.getElementById("routeControlPanel")?.classList.remove("hidden");
     await refreshControlPanel();
   }
