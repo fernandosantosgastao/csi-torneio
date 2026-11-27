@@ -13,6 +13,21 @@
       display: none;
     }
 
+    .mobile-menu-toggle {
+      display: none;
+      min-width: 42px;
+      min-height: 40px;
+      border-radius: 10px;
+      border: 1px solid rgba(148, 163, 184, 0.4);
+      background: rgba(15, 36, 76, 0.92);
+      color: #f8fafc;
+      font-size: 1.15rem;
+      font-weight: 900;
+      cursor: pointer;
+      align-items: center;
+      justify-content: center;
+    }
+
     .nav-pills {
       display: flex;
       align-items: center;
@@ -43,6 +58,60 @@
       border-color: rgba(192, 132, 252, 0.65);
       background: rgba(126, 34, 206, 0.35);
       color: #f3e8ff;
+    }
+
+    @media (max-width: 860px) {
+      header {
+        position: relative;
+        flex-wrap: wrap;
+        gap: 8px;
+        padding: 10px 14px;
+      }
+
+      .brand {
+        font-size: 0.92rem;
+        flex: 1 1 auto;
+        min-width: 0;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .brand .brand-pill {
+        display: none;
+      }
+
+      .mobile-menu-toggle {
+        display: inline-flex;
+      }
+
+      .header-actions .badge-status {
+        display: none;
+      }
+
+      .nav-pills {
+        display: none;
+        width: 100%;
+        flex-direction: column;
+        align-items: stretch;
+        background: rgba(7, 22, 51, 0.98);
+        border: 1px solid rgba(56, 189, 248, 0.35);
+        border-radius: 14px;
+        padding: 10px;
+        margin-top: 6px;
+        z-index: 60;
+      }
+
+      .nav-pills.mobile-open {
+        display: flex;
+      }
+
+      .nav-pill-btn {
+        text-align: left;
+        border-radius: 10px;
+        padding: 11px 14px;
+        font-size: 0.9rem;
+      }
     }
 
     .duo-gate-card {
@@ -239,6 +308,26 @@
       border: 1px solid rgba(251, 191, 36, 0.45);
     }
 
+    .elim-penalty-banner {
+      background: rgba(244, 63, 94, 0.16);
+      border: 1.5px solid rgba(244, 63, 94, 0.65);
+      border-radius: 14px;
+      padding: 14px 18px;
+      margin-bottom: 14px;
+      color: #ffe4e6;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    .arena-locked-overlay {
+      opacity: 0.45;
+      pointer-events: none;
+      filter: grayscale(0.4);
+    }
+
     .podium-grid-3 {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
@@ -360,17 +449,19 @@
 <div class="confetti-layer hidden" id="confettiLayer"></div>
 
 <header>
+  <button type="button" class="mobile-menu-toggle" id="btnMobileMenuToggle" onclick="toggleMobileNavDrawer()" aria-label="Abrir menu">☰</button>
+
   <div class="brand" style="cursor:pointer;" onclick="navigateToRoute('/login')">
-    🏆 EDUCAÇÃO SP • CSI TORNEIO <span class="brand-pill">REALTIME</span>
+    🏆 CSI TORNEIO <span class="brand-pill">REALTIME</span>
   </div>
 
-  <div class="nav-pills">
+  <nav class="nav-pills" id="mainNavPills">
     <button type="button" class="nav-pill-btn active" id="navLoginBtn" onclick="navigateToRoute('/login')">Login</button>
     <button type="button" class="nav-pill-btn" id="navHomeBtn" onclick="navigateToRoute('/')">Home</button>
     <button type="button" class="nav-pill-btn" id="navSalas24hBtn" onclick="navigateToRoute('/salas-online')">Salas 24h</button>
     <button type="button" class="nav-pill-btn" id="navCreateClassBtn" onclick="navigateToRoute('/gerador-de-salas')">Portal do Professor</button>
     <button type="button" class="nav-pill-btn admin-pill hidden" id="navControlPanelBtn" onclick="navigateToRoute('/painel-de-controle')">🛡️ Painel de Controle</button>
-  </div>
+  </nav>
 
   <div class="header-actions">
     <div class="badge-status"><span class="dot online" id="netDot"></span> <span id="netText">Torneio Ao Vivo</span></div>
@@ -583,12 +674,20 @@
       </div>
     </div>
 
+    <div id="arenaElimPenaltyBanner" class="elim-penalty-banner hidden">
+      <div>
+        <strong style="font-size:1rem;">⛔ Você foi eliminado / colocado em castigo!</strong>
+        <div id="arenaElimPenaltyDesc" style="font-size:0.86rem; margin-top:3px;">Aguarde o tempo de castigo ou a recomposição da sala.</div>
+      </div>
+      <div class="math-timer-clock" id="arenaElimClock">01:00</div>
+    </div>
+
     <div class="math-timer-banner" id="arenaMathBanner">
       <span>🧮 A cada <strong>2 minutos</strong> de partida será aberta uma questão de matemática.</span>
       <span>Próxima questão em: <strong class="math-timer-clock" id="arenaMathClock">02:00</strong></span>
     </div>
 
-    <div class="game-layout">
+    <div id="arenaPlayableContent" class="game-layout">
       <div class="card">
         <h2 id="arenaStoryTitle">📜 Conto</h2>
         <div class="story-box" id="arenaStoryBox"></div>
@@ -892,6 +991,6 @@
   </div>
 </div>
 
-<script src="app.js?v=20"></script>
+<script src="app.js?v=23"></script>
 </body>
 </html>
