@@ -54,7 +54,7 @@
     .role-choice-card {
       background: linear-gradient(160deg, rgba(15, 43, 92, 0.88), rgba(8, 24, 56, 0.95));
       border: 1.5px solid rgba(125, 211, 252, 0.28);
-      border-radius: 18px;
+      border-radius: 20px;
       padding: 28px 22px;
       cursor: pointer;
       transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
@@ -111,7 +111,47 @@
       font-size: 0.92rem;
       color: #cbd5e1;
       line-height: 1.5;
-      margin-bottom: 18px;
+      margin-bottom: 20px;
+    }
+
+    .role-choice-cta {
+      width: 100%;
+      min-height: 52px;
+      padding: 14px 20px;
+      border-radius: 14px;
+      font-weight: 900;
+      font-size: 1rem;
+      letter-spacing: 0.01em;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      box-sizing: border-box;
+      transition: transform 0.16s ease, box-shadow 0.16s ease, filter 0.16s ease;
+    }
+
+    .role-choice-cta-student {
+      background: linear-gradient(135deg, #38bdf8 0%, #0284c7 100%);
+      color: #ffffff;
+      box-shadow: 0 8px 22px rgba(2, 132, 199, 0.42);
+      border: 1px solid rgba(186, 230, 253, 0.45);
+    }
+
+    .role-choice-card:hover .role-choice-cta-student {
+      filter: brightness(1.08);
+      box-shadow: 0 10px 26px rgba(56, 189, 248, 0.55);
+    }
+
+    .role-choice-cta-teacher {
+      background: linear-gradient(135deg, #fde047 0%, #f59e0b 65%, #d97706 100%);
+      color: #09152c;
+      box-shadow: 0 8px 22px rgba(245, 158, 11, 0.36);
+      border: 1px solid rgba(254, 240, 138, 0.65);
+    }
+
+    .role-choice-card:hover .role-choice-cta-teacher {
+      filter: brightness(1.06);
+      box-shadow: 0 10px 26px rgba(251, 191, 36, 0.5);
     }
 
     .single-portal-wrap {
@@ -203,7 +243,7 @@
             <div class="role-choice-title">Sou Aluno</div>
             <div class="role-choice-desc">Tenho o código de 4 letras da sala passado pelo professor e quero entrar na partida.</div>
           </div>
-          <span class="btn-primary" style="width:100%; display:inline-block; box-sizing:border-box;">🚀 Entrar com Código</span>
+          <span class="role-choice-cta role-choice-cta-student">🚀 Entrar com Código</span>
         </button>
 
         <button type="button" class="role-choice-card role-choice-teacher" onclick="selectLobbyRole('teacher')">
@@ -212,7 +252,7 @@
             <div class="role-choice-title">Sou Professor</div>
             <div class="role-choice-desc">Quero fazer login na minha conta, abrir uma nova sala do torneio e acompanhar o placar da turma.</div>
           </div>
-          <span class="btn-gold" style="width:100%; display:inline-block; box-sizing:border-box;">🔐 Acessar Painel Docente</span>
+          <span class="role-choice-cta role-choice-cta-teacher">🔐 Acessar Painel Docente</span>
         </button>
       </div>
     </div>
