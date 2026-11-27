@@ -115,7 +115,7 @@ const STORIES = [
   }
 ];
 
-const VALID_ROUTES = ["/", "/painel-de-controle", "/gerador-de-salas", "/salas-online"];
+const VALID_ROUTES = ["/login", "/", "/painel-de-controle", "/gerador-de-salas", "/salas-online"];
 const LAST_ROUTE_KEY = "csi_last_route_v1";
 
 let authSession = null;
@@ -123,6 +123,7 @@ let currentProfile = null;
 let moderatorsEmails = [];
 let botTestAllowed = false;
 let authLoadedOnce = false;
+let gateSignupMode = false;
 
 let activeRoomPin = "";
 let activeRoomState = null;
@@ -185,6 +186,59 @@ async function toggleFullscreenMode() {
 
 document.addEventListener("fullscreenchange", syncFullscreenButtonLabel);
 document.addEventListener("webkitfullscreenchange", syncFullscreenButtonLabel);
+
+function openGateQuickCode() {
+  document.getElementById("gateQuickCodeBox")?.classList.remove("hidden");
+  document.getElementById("gateAccountBox")?.classList.add("hidden");
+}
+
+function openGateAccountForm(isSignup) {
+  gateSignupMode = !!isSignup;
+  document.getElementById("gateAccountBox")?.classList.remove("hidden");
+  document.getElementById("gateQuickCodeBox")?.classList.add("hidden");
+  const titleEl = document.getElementById("gateAccountTitle");
+  const btnEl = document.getElementById("gateAuthSubmitBtn");
+  if (titleEl) titleEl.textContent = gateSignupMode ? "✨ Criar uma Conta" : "🔐 Fazer Login";
+  if (btnEl) btnEl.textContent = gateSignupMode ? "Criar Conta e Entrar" : "Entrar na Conta";
+}
+
+async function submitGateQuickCode() {
+  const nick = String(document.getElementById("gateCodeName")?.value || "").trim();
+  const cls = String(document.getElementById("gateCodeClass")?.value || "Geral").trim() || "Geral";
+  const pin = String(document.getElementById("gateCodePin")?.value || "").trim().toUpperCase();
+  if (!nick) return toast("Digite seu nome.");
+  if (!/^[A-Z0-9]{4}$/.test(pin)) return toast("Digite o PIN de 4 letras.");
+
+  document.getElementById("quickCodeName").value = nick;
+  document.getElementById("quickCodeClass").value = cls;
+  document.getElementById("quickCodePin").value = pin;
+  await navigateToRoute("/");
+  await enterRoomByQuickCode();
+}
+
+async function submitGateAccount() {
+  const email = String(document.getElementById("gateAuthEmail")?.value || "").trim().toLowerCase();
+  const password = String(document.getElementById("gateAuthPassword")?.value || "");
+  if (!email || password.length < 6) return toast("Informe e-mail e senha (mínimo 6 caracteres).");
+
+  const endpoint = gateSignupMode ? "/auth/v1/signup" : "/auth/v1/token?grant_type=password";
+  const res = await fetch(`${SUPABASE_URL}${endpoint}`, {
+    method: "POST",
+    headers: { "apikey": SUPABASE_KEY, "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password })
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.access_token) {
+    return toast(data.msg || data.error_description || "Falha na autenticação.");
+  }
+
+  authSession = { access_token: data.access_token, user: data.user };
+  localStorage.setItem("csi_teacher_auth", JSON.stringify(authSession));
+  await loadSessionAndProfile();
+  await loadPlatformState();
+  toast(gateSignupMode ? "Conta criada com sucesso!" : "Login realizado com sucesso!");
+  await navigateToRoute("/");
+}
 
 function getHeaders(json = false) {
   const h = { "apikey": SUPABASE_KEY };
@@ -249,26 +303,24 @@ function normalizePath(pathname) {
 }
 
 function readInitialRoute() {
-  const currentNorm = normalizePath(window.location.pathname);
-  if (currentNorm !== "/") return currentNorm;
-  try {
-    const saved = normalizePath(localStorage.getItem(LAST_ROUTE_KEY) || "/");
-    if (saved && saved !== "/") {
-      window.history.replaceState({ route: saved }, "", saved);
-      return saved;
-    }
-  } catch (e) {}
-  return "/";
+  const rawPath = String(window.location.pathname || "/").replace(/\/+$/, "") || "/";
+  if (rawPath === "/") {
+    return "/login";
+  }
+  return normalizePath(rawPath);
 }
 
 function showRouteSection(route) {
   document.querySelectorAll(".route-view").forEach(sec => sec.classList.add("hidden"));
+  document.getElementById("navLoginBtn")?.classList.toggle("active", route === "/login");
   document.getElementById("navHomeBtn")?.classList.toggle("active", route === "/");
   document.getElementById("navSalas24hBtn")?.classList.toggle("active", route === "/salas-online");
   document.getElementById("navCreateClassBtn")?.classList.toggle("active", route === "/gerador-de-salas");
   document.getElementById("navControlPanelBtn")?.classList.toggle("active", route === "/painel-de-controle");
 
-  if (route === "/") {
+  if (route === "/login") {
+    document.getElementById("routeLoginGate")?.classList.remove("hidden");
+  } else if (route === "/") {
     document.getElementById("routeHome")?.classList.remove("hidden");
   } else if (route === "/salas-online") {
     document.getElementById("routeSalasOnline")?.classList.remove("hidden");
@@ -288,7 +340,7 @@ async function navigateToRoute(targetPath, replaceState = false) {
   }
 
   if (authLoadedOnce && route === "/gerador-de-salas" && !authSession) {
-    toast("Faça login como professor para acessar o gerador de salas.");
+    toast("Faça login como professor para acessar o portal do professor.");
   }
 
   try { localStorage.setItem(LAST_ROUTE_KEY, route); } catch (e) {}
@@ -377,7 +429,7 @@ function logoutAccountSession() {
   leaveCurrentMatchToHub();
   updateNavVisibility();
   toast("Sessão encerrada.");
-  navigateToRoute("/");
+  navigateToRoute("/login");
 }
 
 function buildSeedRng(seed) {
@@ -2038,6 +2090,16 @@ async function controlToggleBotFlag() {
     botTestAllowed = next;
     await refreshControlPanel();
   }
+}
+
+async function controlDeleteRoom(pin) {
+  if (!isAdminUser()) return;
+  await fetch(`${SUPABASE_URL}/rest/v1/salas?pin=eq.${encodeURIComponent(pin)}`, {
+    method: "DELETE",
+    headers: getHeaders(false)
+  }).catch(() => {});
+  await refreshControlPanel();
+  toast(`Sala ${pin} excluída.`);
 }
 
 async function controlClearRankingOnly() {
