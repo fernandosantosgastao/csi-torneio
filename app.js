@@ -420,20 +420,30 @@ function makePlayerKey(name, cls) {
   return `p_${n}_${c}`;
 }
 
-/* ENTRADA RÁPIDA NA ESCOLA POR CÓDIGO (SEM CONTA) */
+function ensurePlayerEntry(pk, name, cls) {
+  if (!activeRoomState.players) activeRoomState.players = {};
+  if (!activeRoomState.players[pk]) {
+    activeRoomState.players[pk] = {
+      key: pk,
+      name: name || "Jogador",
+      cls: cls || "Geral",
+      score: 0,
+      words: [],
+      mathSolved: 0,
+      eliminated: false
+    };
+  }
+  if (!activeRoomState.players[pk].key) activeRoomState.players[pk].key = pk;
+  return activeRoomState.players[pk];
+}
+
 async function enterRoomByQuickCode() {
   const nick = String(document.getElementById("quickCodeName")?.value || "").trim();
   const cls = String(document.getElementById("quickCodeClass")?.value || "Geral").trim() || "Geral";
   const pin = String(document.getElementById("quickCodePin")?.value || "").trim().toUpperCase();
 
-  if (!nick) {
-    toast("Digite seu nome para entrar na sala.");
-    return;
-  }
-  if (!/^[A-Z0-9]{4}$/.test(pin)) {
-    toast("Digite o código PIN de 4 caracteres da sala.");
-    return;
-  }
+  if (!nick) return toast("Digite seu nome para entrar na sala.");
+  if (!/^[A-Z0-9]{4}$/.test(pin)) return toast("Digite o código PIN de 4 caracteres da sala.");
 
   let roomState = null;
   try {
@@ -447,14 +457,8 @@ async function enterRoomByQuickCode() {
     }
   } catch (e) {}
 
-  if (!roomState) {
-    toast(`Sala ${pin} não encontrada. Verifique o PIN com o professor.`);
-    return;
-  }
-  if (roomState.closed) {
-    toast(`A sala ${pin} foi encerrada pelo professor.`);
-    return;
-  }
+  if (!roomState) return toast(`Sala ${pin} não encontrada. Verifique o PIN com o professor.`);
+  if (roomState.closed) return toast(`A sala ${pin} está fechada no momento.`);
 
   activeRoomPin = pin;
   activeRoomState = roomState;
@@ -463,10 +467,7 @@ async function enterRoomByQuickCode() {
   lastProcessedEventId = 0;
 
   const pKey = makePlayerKey(nick, cls);
-  if (!activeRoomState.players) activeRoomState.players = {};
-  if (!activeRoomState.players[pKey]) {
-    activeRoomState.players[pKey] = { name: nick, cls, score: 0, words: [], mathSolved: 0 };
-  }
+  ensurePlayerEntry(pKey, nick, cls);
 
   document.getElementById("activeArenaSection")?.classList.remove("hidden");
   document.getElementById("btnLeaveActiveRoom")?.classList.remove("hidden");
@@ -479,7 +480,6 @@ async function enterRoomByQuickCode() {
   toast(`Entrou na sala ${pin}!`);
 }
 
-/* SALAS 24H FORA DA ESCOLA (EXIGE CONTA LOGADA) */
 function syncSalas24hView() {
   const gate = document.getElementById("salas24hAuthGate");
   const lobby = document.getElementById("salas24hLobbyBox");
@@ -502,10 +502,7 @@ function syncSalas24hView() {
 async function loginFromSalas24h(isSignup) {
   const email = String(document.getElementById("salas24hEmail")?.value || "").trim().toLowerCase();
   const password = String(document.getElementById("salas24hPassword")?.value || "");
-  if (!email || password.length < 6) {
-    toast("Informe e-mail e senha (mínimo 6 caracteres).");
-    return;
-  }
+  if (!email || password.length < 6) return toast("Informe e-mail e senha (mínimo 6 caracteres).");
   const endpoint = isSignup ? "/auth/v1/signup" : "/auth/v1/token?grant_type=password";
   const res = await fetch(`${SUPABASE_URL}${endpoint}`, {
     method: "POST",
@@ -513,10 +510,7 @@ async function loginFromSalas24h(isSignup) {
     body: JSON.stringify({ email, password })
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok || !data.access_token) {
-    toast(data.msg || data.error_description || "Falha na autenticação.");
-    return;
-  }
+  if (!res.ok || !data.access_token) return toast(data.msg || data.error_description || "Falha na autenticação.");
   authSession = { access_token: data.access_token, user: data.user };
   localStorage.setItem("csi_teacher_auth", JSON.stringify(authSession));
   await loadSessionAndProfile();
@@ -542,24 +536,15 @@ function render24hRoomCards() {
 
 function joinRoom24hByCustomPin() {
   const pin = String(document.getElementById("customPinJoin24h")?.value || "").trim().toUpperCase();
-  if (!/^[A-Z0-9]{4}$/.test(pin)) {
-    toast("Digite um PIN válido de 4 caracteres.");
-    return;
-  }
+  if (!/^[A-Z0-9]{4}$/.test(pin)) return toast("Digite um PIN válido de 4 caracteres.");
   enterRoom24h(pin, `Sala ${pin}`, 0);
 }
 
 async function enterRoom24h(pin, label, storyIdx = 0) {
-  if (!authSession) {
-    toast("Faça login para entrar na sala 24h.");
-    return;
-  }
+  if (!authSession) return toast("Faça login para entrar na sala 24h.");
   const nick = String(document.getElementById("playerNick24h")?.value || currentProfile?.full_name || "Jogador").trim();
   const cls = String(document.getElementById("playerClass24h")?.value || "Geral").trim() || "Geral";
-  if (!nick) {
-    toast("Digite seu nome para jogar.");
-    return;
-  }
+  if (!nick) return toast("Digite seu nome para jogar.");
 
   activeRoomPin = pin;
   activePlayerNick = nick;
@@ -603,10 +588,7 @@ async function enterRoom24h(pin, label, storyIdx = 0) {
 
   activeRoomState = roomState;
   const pKey = makePlayerKey(nick, cls);
-  if (!activeRoomState.players) activeRoomState.players = {};
-  if (!activeRoomState.players[pKey]) {
-    activeRoomState.players[pKey] = { name: nick, cls, score: 0, words: [], mathSolved: 0 };
-  }
+  ensurePlayerEntry(pKey, nick, cls);
 
   document.getElementById("activeArenaSection")?.classList.remove("hidden");
   document.getElementById("btnLeaveActiveRoom")?.classList.remove("hidden");
@@ -627,27 +609,46 @@ function applyEventToLocalRoom(ev) {
   if (!activeRoomState.claimedWords) activeRoomState.claimedWords = {};
 
   const pk = ev.player_key || makePlayerKey(ev.player_name, ev.player_class);
-  if (!activeRoomState.players[pk]) {
-    activeRoomState.players[pk] = {
-      name: ev.player_name || "Jogador",
-      cls: ev.player_class || "Geral",
-      score: 0,
-      words: [],
-      mathSolved: 0
-    };
-  }
-  const pl = activeRoomState.players[pk];
+  const pl = ensurePlayerEntry(pk, ev.player_name, ev.player_class);
 
   if (ev.event_type === "CLAIM_WORD" && ev.word) {
-    if (!activeRoomState.claimedWords[ev.word]) {
+    if (!pl.eliminated && !activeRoomState.claimedWords[ev.word]) {
       activeRoomState.claimedWords[ev.word] = { by: pl.name, points: ev.points || 100 };
       pl.score = Number(pl.score || 0) + Number(ev.points || 100);
       if (!Array.isArray(pl.words)) pl.words = [];
       if (!pl.words.includes(ev.word)) pl.words.push(ev.word);
     }
   } else if (ev.event_type === "MATH_SOLVED") {
-    pl.score = Number(pl.score || 0) + Number(ev.points || 60);
-    pl.mathSolved = Number(pl.mathSolved || 0) + 1;
+    if (!pl.eliminated) {
+      pl.score = Number(pl.score || 0) + Number(ev.points || 60);
+      pl.mathSolved = Number(pl.mathSolved || 0) + 1;
+    }
+  } else if (ev.event_type === "ADMIN_BONUS_POINTS") {
+    const targetKey = ev.target_player_key || pk;
+    const targetPlayer = activeRoomState.players[targetKey] || pl;
+    const addPts = Number(ev.bonus_points ?? ev.points ?? 50);
+    targetPlayer.score = Number(targetPlayer.score || 0) + addPts;
+  } else if (ev.event_type === "ADMIN_REVIVE_PLAYER") {
+    const targetKey = ev.target_player_key || pk;
+    const targetPlayer = activeRoomState.players[targetKey] || pl;
+    targetPlayer.eliminated = false;
+  } else if (ev.event_type === "ADMIN_END_MATCH") {
+    activeRoomState.started = false;
+    activeRoomState.ended = true;
+  } else if (ev.event_type === "ADMIN_NEW_MATCH") {
+    activeRoomState.started = true;
+    activeRoomState.ended = false;
+    activeRoomState.closed = false;
+    activeRoomState.stage = 1;
+    activeRoomState.claimedWords = {};
+    Object.values(activeRoomState.players).forEach(p => {
+      p.score = 0;
+      p.words = [];
+      p.mathSolved = 0;
+      p.eliminated = false;
+    });
+  } else if (ev.event_type === "ADMIN_TOGGLE_ROOM") {
+    activeRoomState.closed = !activeRoomState.closed;
   }
 }
 
@@ -657,14 +658,15 @@ function scheduleArenaUiUpdate() {
     uiRenderDebounce = null;
     renderArenaBoard(false);
     renderTeacherConsole();
+    renderAdminRoomInspector();
   }, 150);
 }
 
 async function fetchRecentEventsAndSubscribe(pin, pKey, nick, cls) {
   try {
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/sala_eventos?room_pin=eq.${encodeURIComponent(pin)}&order=id.asc&limit=500`, {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/sala_eventos?room_pin=eq.${encodeURIComponent(pin)}&order=id.asc&limit=1000`, {
       cache: "no-store",
-      headers: getHeaders(false)
+      headers: { "apikey": SUPABASE_KEY }
     });
     if (res.ok) {
       const rows = await res.json().catch(() => []);
@@ -672,15 +674,20 @@ async function fetchRecentEventsAndSubscribe(pin, pKey, nick, cls) {
     }
   } catch (e) {}
 
-  await publishRoomEvent({
-    room_pin: pin,
-    stage: activeRoomState?.stage || 1,
-    event_type: "JOIN",
-    player_key: pKey,
-    player_name: nick,
-    player_class: cls,
-    points: 0
-  });
+  if (pKey && nick) {
+    await publishRoomEvent({
+      room_pin: pin,
+      stage: activeRoomState?.stage || 1,
+      event_type: "JOIN",
+      player_key: pKey,
+      player_name: nick,
+      player_class: cls,
+      word: null,
+      target_player_key: null,
+      bonus_points: 0,
+      points: 0
+    });
+  }
 
   scheduleArenaUiUpdate();
 
@@ -703,13 +710,25 @@ async function fetchRecentEventsAndSubscribe(pin, pKey, nick, cls) {
 }
 
 async function publishRoomEvent(payload) {
-  applyEventToLocalRoom(payload);
+  const fullPayload = {
+    room_pin: payload.room_pin || activeRoomPin,
+    stage: payload.stage ?? (activeRoomState?.stage || 1),
+    event_type: payload.event_type,
+    player_key: payload.player_key || "admin_system",
+    player_name: payload.player_name || "Sistema/Admin",
+    player_class: payload.player_class || "Geral",
+    word: payload.word ?? null,
+    target_player_key: payload.target_player_key ?? null,
+    bonus_points: payload.bonus_points ?? 0,
+    points: payload.points ?? 0
+  };
+  applyEventToLocalRoom(fullPayload);
   scheduleArenaUiUpdate();
   try {
     await fetch(`${SUPABASE_URL}/rest/v1/sala_eventos`, {
       method: "POST",
       headers: { ...getHeaders(true), "Prefer": "return=minimal" },
-      body: JSON.stringify(payload)
+      body: JSON.stringify(fullPayload)
     });
   } catch (e) {}
 }
@@ -734,6 +753,9 @@ function renderArenaBoard(rebuildGrid = false) {
     if (claimed[w]) {
       tag.classList.add("solved");
       tag.style.backgroundColor = CLASS_COLORS[wordClsMap[w]] || "#10b981";
+    } else {
+      tag.classList.remove("solved");
+      tag.style.backgroundColor = "";
     }
   });
 
@@ -1044,10 +1066,7 @@ async function loginFromTeacherRoute() {
     body: JSON.stringify({ email, password })
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok || !data.access_token) {
-    toast("E-mail ou senha inválidos.");
-    return;
-  }
+  if (!res.ok || !data.access_token) return toast("E-mail ou senha inválidos.");
   authSession = { access_token: data.access_token, user: data.user };
   localStorage.setItem("csi_teacher_auth", JSON.stringify(authSession));
   await loadSessionAndProfile();
@@ -1071,6 +1090,7 @@ async function createManagedClassRoom() {
     pin,
     roomLabel: label,
     started: false,
+    ended: false,
     closed: false,
     stage: 1,
     storyIdx: STORIES.indexOf(story),
@@ -1087,74 +1107,247 @@ async function createManagedClassRoom() {
   });
 
   document.getElementById("teacherLiveConsole")?.classList.remove("hidden");
+  await fetchRecentEventsAndSubscribe(pin, null, null, null);
   renderTeacherConsole();
   toast(`Sala ${pin} criada!`);
 }
 
+async function persistRoomStatePatch(patchObj) {
+  if (!activeRoomPin || !activeRoomState) return;
+  Object.assign(activeRoomState, patchObj);
+  await fetch(`${SUPABASE_URL}/rest/v1/salas`, {
+    method: "POST",
+    headers: { ...getHeaders(true), "Prefer": "resolution=merge-duplicates" },
+    body: JSON.stringify({
+      pin: activeRoomPin,
+      owner_id: authSession?.user?.id || null,
+      state: activeRoomState,
+      updated_at: new Date().toISOString()
+    })
+  }).catch(() => {});
+}
+
 async function consoleStartMatch() {
   if (!activeRoomState) return;
-  activeRoomState.started = true;
-  await fetch(`${SUPABASE_URL}/rest/v1/salas?pin=eq.${encodeURIComponent(activeRoomPin)}`, {
-    method: "PATCH",
-    headers: { ...getHeaders(true), "Prefer": "return=minimal" },
-    body: JSON.stringify({ state: activeRoomState, updated_at: new Date().toISOString() })
-  });
+  await persistRoomStatePatch({ started: true, ended: false });
   renderTeacherConsole();
+  renderAdminRoomInspector();
   toast("Partida iniciada!");
+}
+
+async function consoleEndMatch() {
+  if (!activeRoomState) return;
+  await persistRoomStatePatch({ started: false, ended: true });
+  await publishRoomEvent({
+    room_pin: activeRoomPin,
+    event_type: "ADMIN_END_MATCH"
+  });
+  toast("Partida encerrada!");
+}
+
+async function consoleNewMatch() {
+  if (!activeRoomState) return;
+  const nextStoryIdx = ((activeRoomState.storyIdx || 0) + 1) % STORIES.length;
+  const story = STORIES[nextStoryIdx];
+  const built = buildWordSearchMatrix(`${activeRoomPin}_match_${Date.now()}`, story.words);
+  await persistRoomStatePatch({
+    started: true,
+    ended: false,
+    closed: false,
+    stage: 1,
+    storyIdx: nextStoryIdx,
+    grid: built.grid,
+    wordPlacements: built.placements,
+    claimedWords: {},
+    players: {}
+  });
+  await publishRoomEvent({
+    room_pin: activeRoomPin,
+    event_type: "ADMIN_NEW_MATCH"
+  });
+  toast("Nova partida iniciada!");
 }
 
 async function consoleAdvanceStage() {
   if (!activeRoomState) return;
-  activeRoomState.stage = (activeRoomState.stage || 1) + 1;
-  activeRoomState.storyIdx = ((activeRoomState.storyIdx || 0) + 1) % STORIES.length;
-  activeRoomState.claimedWords = {};
-  const story = STORIES[activeRoomState.storyIdx];
-  const built = buildWordSearchMatrix(`${activeRoomPin}_s${activeRoomState.stage}_${Date.now()}`, story.words);
-  activeRoomState.grid = built.grid;
-  activeRoomState.wordPlacements = built.placements;
-  await fetch(`${SUPABASE_URL}/rest/v1/salas?pin=eq.${encodeURIComponent(activeRoomPin)}`, {
-    method: "PATCH",
-    headers: { ...getHeaders(true), "Prefer": "return=minimal" },
-    body: JSON.stringify({ state: activeRoomState, updated_at: new Date().toISOString() })
+  const nextStage = (activeRoomState.stage || 1) + 1;
+  const nextStoryIdx = ((activeRoomState.storyIdx || 0) + 1) % STORIES.length;
+  const story = STORIES[nextStoryIdx];
+  const built = buildWordSearchMatrix(`${activeRoomPin}_s${nextStage}_${Date.now()}`, story.words);
+  await persistRoomStatePatch({
+    stage: nextStage,
+    storyIdx: nextStoryIdx,
+    claimedWords: {},
+    grid: built.grid,
+    wordPlacements: built.placements
   });
   renderTeacherConsole();
-  toast(`Fase ${activeRoomState.stage} iniciada!`);
+  renderAdminRoomInspector();
+  toast(`Fase ${nextStage} iniciada!`);
 }
 
 async function consoleToggleClose() {
   if (!activeRoomState) return;
-  activeRoomState.closed = !activeRoomState.closed;
-  await fetch(`${SUPABASE_URL}/rest/v1/salas?pin=eq.${encodeURIComponent(activeRoomPin)}`, {
-    method: "PATCH",
-    headers: { ...getHeaders(true), "Prefer": "return=minimal" },
-    body: JSON.stringify({ state: activeRoomState, updated_at: new Date().toISOString() })
+  await persistRoomStatePatch({ closed: !activeRoomState.closed });
+  await publishRoomEvent({
+    room_pin: activeRoomPin,
+    event_type: "ADMIN_TOGGLE_ROOM"
   });
-  renderTeacherConsole();
+  toast(activeRoomState.closed ? "Sala fechada!" : "Sala reaberta!");
+}
+
+async function adminAwardPointsToPlayer(playerKey, bonusPts = 50) {
+  if (!activeRoomPin || !activeRoomState) return;
+  const pl = activeRoomState.players?.[playerKey];
+  if (!pl) return;
+  await publishRoomEvent({
+    room_pin: activeRoomPin,
+    event_type: "ADMIN_BONUS_POINTS",
+    player_key: playerKey,
+    target_player_key: playerKey,
+    player_name: pl.name,
+    player_class: pl.cls || "Geral",
+    bonus_points: bonusPts,
+    points: bonusPts
+  });
+  toast(`+${bonusPts} pts enviados para ${pl.name}!`);
+}
+
+async function adminRevivePlayer(playerKey) {
+  if (!activeRoomPin || !activeRoomState) return;
+  const pl = activeRoomState.players?.[playerKey];
+  if (!pl) return;
+  await publishRoomEvent({
+    room_pin: activeRoomPin,
+    event_type: "ADMIN_REVIVE_PLAYER",
+    player_key: playerKey,
+    target_player_key: playerKey,
+    player_name: pl.name,
+    player_class: pl.cls || "Geral"
+  });
+  toast(`${pl.name} recolocado de volta no jogo!`);
 }
 
 function renderTeacherConsole() {
   if (!activeRoomState) return;
   document.getElementById("consolePinDisplay").textContent = activeRoomState.pin;
   document.getElementById("consoleRoomName").textContent = activeRoomState.roomLabel;
-  document.getElementById("consoleRoomStatus").textContent = activeRoomState.closed ? "Encerrada" : (activeRoomState.started ? `Fase ${activeRoomState.stage}` : "Espera");
+  document.getElementById("consoleRoomStatus").textContent = activeRoomState.closed
+    ? "Sala Fechada"
+    : (activeRoomState.ended ? "Partida Encerrada" : (activeRoomState.started ? `Em Jogo • Fase ${activeRoomState.stage || 1}` : "Aguardando Início"));
 
-  const players = Object.values(activeRoomState.players || {}).sort((a, b) => (b.score || 0) - (a.score || 0)).slice(0, 20);
-  document.getElementById("consolePlayersCount").textContent = `${Object.keys(activeRoomState.players || {}).length} jogador(es)`;
+  const btnClose = document.getElementById("btnConsoleToggleRoom");
+  if (btnClose) btnClose.textContent = activeRoomState.closed ? "🔓 Reabrir Sala" : "🔒 Fechar Sala";
+
+  const entries = Object.entries(activeRoomState.players || {})
+    .map(([k, v]) => ({ key: k, ...v }))
+    .sort((a, b) => (b.score || 0) - (a.score || 0));
+
+  document.getElementById("consolePlayersCount").textContent = `${entries.length} jogador(es) na sala`;
 
   const tbody = document.getElementById("consoleScoreTableBody");
   if (!tbody) return;
-  if (!players.length) {
-    tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; color:var(--text-muted);">Aguardando jogadores entrarem...</td></tr>`;
+  if (!entries.length) {
+    tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; color:var(--text-muted);">Nenhum jogador entrou ainda.</td></tr>`;
     return;
   }
-  tbody.innerHTML = players.map((p, idx) => `
+
+  tbody.innerHTML = entries.slice(0, 80).map((p, idx) => `
     <tr>
       <td><strong>#${idx + 1}</strong></td>
       <td><strong>${p.name}</strong></td>
       <td>${p.cls || "Geral"}</td>
+      <td>${p.eliminated ? '<span style="color:#fb7185; font-weight:800;">Eliminado</span>' : '<span style="color:#34d399; font-weight:800;">Ativo</span>'}</td>
       <td style="color:var(--gold); font-weight:900;">${p.score || 0}</td>
       <td>${Array.isArray(p.words) ? p.words.length : 0}</td>
       <td>${p.mathSolved || 0}</td>
+      <td>
+        <div class="player-actions-inline">
+          <button type="button" class="btn-gold btn-xs" onclick="adminAwardPointsToPlayer('${p.key}', 50)">+50 pts</button>
+          <button type="button" class="btn-success btn-xs" onclick="adminRevivePlayer('${p.key}')">♻️ Recolocar</button>
+        </div>
+      </td>
+    </tr>
+  `).join("");
+}
+
+async function inspectRoomInConsole(pin) {
+  if (!pin) return;
+  const cleanPin = String(pin).trim().toUpperCase();
+  activeRoomPin = cleanPin;
+  lastProcessedEventId = 0;
+
+  let roomState = null;
+  try {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/salas?pin=eq.${encodeURIComponent(cleanPin)}&select=pin,state&limit=1`, {
+      cache: "no-store",
+      headers: { "apikey": SUPABASE_KEY }
+    });
+    if (res.ok) {
+      const rows = await res.json().catch(() => []);
+      if (Array.isArray(rows) && rows[0]?.state?.grid) roomState = rows[0].state;
+    }
+  } catch (e) {}
+
+  if (!roomState) {
+    const built = buildWordSearchMatrix(`inspect_${cleanPin}`, STORIES[0].words);
+    roomState = {
+      pin: cleanPin,
+      roomLabel: `Sala ${cleanPin}`,
+      started: true,
+      ended: false,
+      closed: false,
+      stage: 1,
+      storyIdx: 0,
+      grid: built.grid,
+      wordPlacements: built.placements,
+      claimedWords: {},
+      players: {}
+    };
+  }
+
+  activeRoomState = roomState;
+  document.getElementById("teacherLiveConsole")?.classList.remove("hidden");
+  document.getElementById("adminRoomInspector")?.classList.remove("hidden");
+  await fetchRecentEventsAndSubscribe(cleanPin, null, null, null);
+  renderTeacherConsole();
+  renderAdminRoomInspector();
+}
+
+function renderAdminRoomInspector() {
+  const box = document.getElementById("adminRoomInspector");
+  if (!box || box.classList.contains("hidden") || !activeRoomState) return;
+
+  document.getElementById("inspRoomPin").textContent = activeRoomState.pin;
+  const entries = Object.entries(activeRoomState.players || {})
+    .map(([k, v]) => ({ key: k, ...v }))
+    .sort((a, b) => (b.score || 0) - (a.score || 0));
+
+  document.getElementById("inspRoomMeta").textContent =
+    `${activeRoomState.roomLabel || "Sala"} • ${entries.length} jogador(es) • ${activeRoomState.closed ? "Fechada" : "Aberta"}`;
+
+  const tbody = document.getElementById("inspPlayersBody");
+  if (!tbody) return;
+  if (!entries.length) {
+    tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; color:var(--text-muted);">Nenhum jogador registrado nesta sala.</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = entries.map((p, idx) => `
+    <tr>
+      <td><strong>#${idx + 1}</strong></td>
+      <td><strong>${p.name}</strong></td>
+      <td>${p.cls || "Geral"}</td>
+      <td>${p.eliminated ? '<span style="color:#fb7185; font-weight:800;">Eliminado</span>' : '<span style="color:#34d399; font-weight:800;">Ativo</span>'}</td>
+      <td style="color:var(--gold); font-weight:900;">${p.score || 0}</td>
+      <td>${Array.isArray(p.words) ? p.words.length : 0}</td>
+      <td>${p.mathSolved || 0}</td>
+      <td>
+        <div class="player-actions-inline">
+          <button type="button" class="btn-gold btn-xs" onclick="adminAwardPointsToPlayer('${p.key}', 50)">+50 pts</button>
+          <button type="button" class="btn-success btn-xs" onclick="adminRevivePlayer('${p.key}')">♻️ Recolocar</button>
+        </div>
+      </td>
     </tr>
   `).join("");
 }
@@ -1193,18 +1386,76 @@ async function refreshControlPanel() {
   } catch (e) {}
 
   try {
+    const roomMap = new Map();
+    DEFAULT_24H_ROOMS.forEach(rm => {
+      roomMap.set(rm.pin, {
+        pin: rm.pin,
+        label: rm.label,
+        mode: "24h",
+        closed: false,
+        playersCount: 0
+      });
+    });
+
     const rRes = await fetch(`${SUPABASE_URL}/rest/v1/salas?select=pin,state&limit=100`, { cache: "no-store", headers: { "apikey": SUPABASE_KEY } });
     const rooms = rRes.ok ? await rRes.json().catch(() => []) : [];
-    document.getElementById("ctrlKpiRooms").textContent = String(Array.isArray(rooms) ? rooms.length : 0);
-    document.getElementById("ctrlRoomsBody").innerHTML = (Array.isArray(rooms) ? rooms : []).map(r => `
+    if (Array.isArray(rooms)) {
+      rooms.forEach(r => {
+        const pCount = Object.keys(r.state?.players || {}).length;
+        roomMap.set(r.pin, {
+          pin: r.pin,
+          label: r.state?.roomLabel || `Sala ${r.pin}`,
+          mode: r.state?.is24h ? "24h" : "Professor",
+          closed: !!r.state?.closed,
+          playersCount: pCount
+        });
+      });
+    }
+
+    const evRes = await fetch(`${SUPABASE_URL}/rest/v1/sala_eventos?select=room_pin,player_key&limit=1000`, { cache: "no-store", headers: { "apikey": SUPABASE_KEY } });
+    const evRows = evRes.ok ? await evRes.json().catch(() => []) : [];
+    if (Array.isArray(evRows)) {
+      const playersByPin = new Map();
+      evRows.forEach(ev => {
+        if (!ev.room_pin) return;
+        if (!playersByPin.has(ev.room_pin)) playersByPin.set(ev.room_pin, new Set());
+        if (ev.player_key && !String(ev.player_key).startsWith("admin_")) {
+          playersByPin.get(ev.room_pin).add(ev.player_key);
+        }
+      });
+      playersByPin.forEach((setKeys, pin) => {
+        if (!roomMap.has(pin)) {
+          roomMap.set(pin, {
+            pin,
+            label: `Sala / Teste ${pin}`,
+            mode: "Eventos",
+            closed: false,
+            playersCount: setKeys.size
+          });
+        } else {
+          const item = roomMap.get(pin);
+          item.playersCount = Math.max(item.playersCount, setKeys.size);
+        }
+      });
+    }
+
+    const allRooms = Array.from(roomMap.values());
+    document.getElementById("ctrlKpiRooms").textContent = String(allRooms.length);
+    document.getElementById("ctrlRoomsBody").innerHTML = allRooms.map(r => `
       <tr>
         <td><strong style="color:var(--gold);">${r.pin}</strong></td>
-        <td>${r.state?.roomLabel || "Sala"}</td>
-        <td>${r.state?.is24h ? "24h" : "Turma"}</td>
-        <td>${r.state?.closed ? "Encerrada" : "Aberta"}</td>
-        <td>${isMaster ? `<button type="button" class="btn-danger btn-xs" onclick="controlDeleteRoom('${r.pin}')">Excluir</button>` : "-"}</td>
+        <td>${r.label}</td>
+        <td>${r.mode}</td>
+        <td><strong>${r.playersCount}</strong></td>
+        <td>${r.closed ? "Fechada" : "Aberta"}</td>
+        <td>
+          <div class="player-actions-inline">
+            <button type="button" class="btn-primary btn-xs" onclick="inspectRoomInConsole('${r.pin}')">👁️ Abrir Sala</button>
+            ${isMaster ? `<button type="button" class="btn-danger btn-xs" onclick="controlDeleteRoom('${r.pin}')">Excluir</button>` : ""}
+          </div>
+        </td>
       </tr>
-    `).join("") || `<tr><td colspan="5" style="text-align:center;">Nenhuma sala.</td></tr>`;
+    `).join("") || `<tr><td colspan="6" style="text-align:center;">Nenhuma sala.</td></tr>`;
   } catch (e) {}
 }
 
