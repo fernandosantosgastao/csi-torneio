@@ -118,6 +118,7 @@ const STORIES = [
 
 const VALID_ROUTES = ["/login", "/", "/painel-de-controle", "/gerador-de-salas", "/salas-online"];
 const LAST_ROUTE_KEY = "csi_last_route_v1";
+const ACTIVE_MATCH_STORAGE_KEY = "csi_active_match_v1";
 
 let authSession = null;
 let currentProfile = null;
@@ -200,6 +201,24 @@ async function toggleFullscreenMode() {
 document.addEventListener("fullscreenchange", syncFullscreenButtonLabel);
 document.addEventListener("webkitfullscreenchange", syncFullscreenButtonLabel);
 
+function saveActiveMatchContext() {
+  try {
+    if (!activeRoomPin || !activePlayerNick) {
+      localStorage.removeItem(ACTIVE_MATCH_STORAGE_KEY);
+      return;
+    }
+    localStorage.setItem(ACTIVE_MATCH_STORAGE_KEY, JSON.stringify({
+      pin: activeRoomPin,
+      nick: activePlayerNick,
+      cls: activePlayerClass || "Geral"
+    }));
+  } catch (e) {}
+}
+
+function clearSavedMatchContext() {
+  try { localStorage.removeItem(ACTIVE_MATCH_STORAGE_KEY); } catch (e) {}
+}
+
 function openGateQuickCode() {
   document.getElementById("gateQuickCodeBox")?.classList.remove("hidden");
   document.getElementById("gateAccountBox")?.classList.add("hidden");
@@ -245,7 +264,11 @@ async function submitGateAccount() {
     return toast(data.msg || data.error_description || "Falha na autenticação.");
   }
 
-  authSession = { access_token: data.access_token, user: data.user };
+  authSession = {
+    access_token: data.access_token,
+    refresh_token: data.refresh_token || authSession?.refresh_token || "",
+    user: data.user
+  };
   localStorage.setItem("csi_teacher_auth", JSON.stringify(authSession));
   await loadSessionAndProfile();
   await loadPlatformState();
@@ -361,6 +384,12 @@ function normalizePath(pathname) {
 function readInitialRoute() {
   const rawPath = String(window.location.pathname || "/").replace(/\/+$/, "") || "/";
   if (rawPath === "/") {
+    try {
+      const saved = normalizePath(localStorage.getItem(LAST_ROUTE_KEY) || "/login");
+      if (saved && saved !== "/" && saved !== "/login") {
+        return saved;
+      }
+    } catch (e) {}
     return "/login";
   }
   return normalizePath(rawPath);
@@ -443,12 +472,38 @@ async function navigateToRoute(targetPath, replaceState = false) {
   }
 }
 
+async function refreshAccessTokenIfNeeded(sessionObj) {
+  if (!sessionObj?.refresh_token) return sessionObj;
+  try {
+    const res = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=refresh_token`, {
+      method: "POST",
+      headers: { "apikey": SUPABASE_KEY, "Content-Type": "application/json" },
+      body: JSON.stringify({ refresh_token: sessionObj.refresh_token })
+    });
+    if (!res.ok) return sessionObj;
+    const fresh = await res.json().catch(() => null);
+    if (fresh?.access_token) {
+      const updated = {
+        ...sessionObj,
+        access_token: fresh.access_token,
+        refresh_token: fresh.refresh_token || sessionObj.refresh_token,
+        user: fresh.user || sessionObj.user
+      };
+      localStorage.setItem("csi_teacher_auth", JSON.stringify(updated));
+      return updated;
+    }
+  } catch (e) {}
+  return sessionObj;
+}
+
 async function loadSessionAndProfile() {
   try {
     const raw = localStorage.getItem("csi_teacher_auth");
     if (!raw) return;
-    const parsed = JSON.parse(raw);
+    let parsed = JSON.parse(raw);
     if (!parsed?.access_token || !parsed?.user?.id) return;
+
+    parsed = await refreshAccessTokenIfNeeded(parsed);
     authSession = parsed;
 
     const res = await fetch(`${SUPABASE_URL}/rest/v1/profiles?id=eq.${encodeURIComponent(authSession.user.id)}&select=*`, {
@@ -459,7 +514,19 @@ async function loadSessionAndProfile() {
       const rows = await res.json().catch(() => []);
       currentProfile = Array.isArray(rows) && rows[0]
         ? rows[0]
-        : { id: authSession.user.id, email: authSession.user.email, role: "student", subscription_status: "active" };
+        : {
+            id: authSession.user.id,
+            email: authSession.user.email,
+            role: authSession.user.user_metadata?.role || "teacher",
+            subscription_status: "active"
+          };
+    } else {
+      currentProfile = {
+        id: authSession.user.id,
+        email: authSession.user.email,
+        role: authSession.user.user_metadata?.role || "teacher",
+        subscription_status: "active"
+      };
     }
   } catch (e) {}
 }
@@ -501,6 +568,7 @@ function logoutAccountSession() {
   activeRoomPin = "";
   activeRoomState = null;
   activeRoomMeta = null;
+  clearSavedMatchContext();
   try { localStorage.removeItem("csi_teacher_auth"); } catch (e) {}
   leaveCurrentMatchToHub();
   updateNavVisibility();
@@ -600,6 +668,28 @@ function ensurePlayerEntry(pk, name, cls) {
   return p;
 }
 
+async function activatePlayerArena(pin, nick, cls, roomRow, skipJoinEvent = false) {
+  activeRoomPin = pin;
+  activeRoomState = roomRow.state;
+  activeRoomMeta = roomRow;
+  activePlayerNick = nick;
+  activePlayerClass = cls;
+  lastProcessedEventId = 0;
+  saveActiveMatchContext();
+
+  const pKey = makePlayerKey(nick, cls);
+  ensurePlayerEntry(pKey, nick, cls);
+
+  document.getElementById("activeArenaSection")?.classList.remove("hidden");
+  document.getElementById("btnLeaveActiveRoom")?.classList.remove("hidden");
+  document.getElementById("arenaPlayerTitle").textContent = nick;
+  document.getElementById("arenaRoomSub").textContent = `(${cls}) • Sala ${pin}`;
+
+  renderArenaBoard(true);
+  startTwoMinMathLoop();
+  await fetchRecentEventsAndSubscribe(pin, skipJoinEvent ? null : pKey, skipJoinEvent ? null : nick, cls);
+}
+
 async function enterRoomByQuickCode() {
   const nick = String(document.getElementById("quickCodeName")?.value || "").trim();
   const cls = String(document.getElementById("quickCodeClass")?.value || "Geral").trim() || "Geral";
@@ -633,24 +723,7 @@ async function enterRoomByQuickCode() {
     return toast(`A sala ${pin} está fechada ou bloqueada no momento.`);
   }
 
-  activeRoomPin = pin;
-  activeRoomState = roomRow.state;
-  activeRoomMeta = roomRow;
-  activePlayerNick = nick;
-  activePlayerClass = cls;
-  lastProcessedEventId = 0;
-
-  const pKey = makePlayerKey(nick, cls);
-  ensurePlayerEntry(pKey, nick, cls);
-
-  document.getElementById("activeArenaSection")?.classList.remove("hidden");
-  document.getElementById("btnLeaveActiveRoom")?.classList.remove("hidden");
-  document.getElementById("arenaPlayerTitle").textContent = nick;
-  document.getElementById("arenaRoomSub").textContent = `(${cls}) • Sala ${pin}`;
-
-  renderArenaBoard(true);
-  startTwoMinMathLoop();
-  await fetchRecentEventsAndSubscribe(pin, pKey, nick, cls);
+  await activatePlayerArena(pin, nick, cls, roomRow, false);
   toast(`Entrou na sala ${pin}!`);
 }
 
@@ -685,7 +758,11 @@ async function loginFromSalas24h(isSignup) {
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok || !data.access_token) return toast(data.msg || data.error_description || "Falha na autenticação.");
-  authSession = { access_token: data.access_token, user: data.user };
+  authSession = {
+    access_token: data.access_token,
+    refresh_token: data.refresh_token || authSession?.refresh_token || "",
+    user: data.user
+  };
   localStorage.setItem("csi_teacher_auth", JSON.stringify(authSession));
   await loadSessionAndProfile();
   await loadPlatformState();
@@ -720,21 +797,17 @@ async function enterRoom24h(pin, label, storyIdx = 0) {
   const cls = String(document.getElementById("playerClass24h")?.value || "Geral").trim() || "Geral";
   if (!nick) return toast("Digite seu nome para jogar.");
 
-  activeRoomPin = pin;
-  activePlayerNick = nick;
-  activePlayerClass = cls;
-  lastProcessedEventId = 0;
-
+  let roomRow = null;
   let roomState = null;
   try {
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/salas?pin=eq.${encodeURIComponent(pin)}&select=pin,state,admin_deleted,admin_locked&limit=1`, {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/salas?pin=eq.${encodeURIComponent(pin)}&select=pin,owner_id,state,admin_deleted,admin_locked&limit=1`, {
       cache: "no-store",
       headers: { "apikey": SUPABASE_KEY }
     });
     if (res.ok) {
       const rows = await res.json().catch(() => []);
       if (Array.isArray(rows) && rows[0]) {
-        activeRoomMeta = rows[0];
+        roomRow = rows[0];
         if (rows[0].admin_deleted || rows[0].state?.adminDeleted) {
           return toast(`Sala ${pin} bloqueada pela administração.`);
         }
@@ -759,25 +832,37 @@ async function enterRoom24h(pin, label, storyIdx = 0) {
       claimedWords: {},
       players: {}
     };
+    roomRow = { pin, state: roomState };
     await fetch(`${SUPABASE_URL}/rest/v1/salas`, {
       method: "POST",
       headers: { ...getHeaders(true), "Prefer": "resolution=merge-duplicates" },
       body: JSON.stringify({ pin, state: roomState, updated_at: new Date().toISOString() })
     }).catch(() => {});
+  } else {
+    roomRow.state = roomState;
   }
 
-  activeRoomState = roomState;
-  const pKey = makePlayerKey(nick, cls);
-  ensurePlayerEntry(pKey, nick, cls);
+  await activatePlayerArena(pin, nick, cls, roomRow, false);
+}
 
-  document.getElementById("activeArenaSection")?.classList.remove("hidden");
-  document.getElementById("btnLeaveActiveRoom")?.classList.remove("hidden");
-  document.getElementById("arenaPlayerTitle").textContent = nick;
-  document.getElementById("arenaRoomSub").textContent = `(${cls}) • Sala ${pin}`;
+async function restoreMatchIfSavedAfterReload() {
+  try {
+    const raw = localStorage.getItem(ACTIVE_MATCH_STORAGE_KEY);
+    if (!raw) return;
+    const saved = JSON.parse(raw);
+    if (!saved?.pin || !saved?.nick) return;
 
-  renderArenaBoard(true);
-  startTwoMinMathLoop();
-  await fetchRecentEventsAndSubscribe(pin, pKey, nick, cls);
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/salas?pin=eq.${encodeURIComponent(saved.pin)}&select=pin,owner_id,state,deleted_at,admin_locked,admin_deleted&limit=1`, {
+      cache: "no-store",
+      headers: { "apikey": SUPABASE_KEY }
+    });
+    const rows = res.ok ? await res.json().catch(() => []) : [];
+    const row = Array.isArray(rows) ? rows[0] : null;
+    if (!row || !row.state?.grid || row.deleted_at || row.admin_deleted || row.state?.adminDeleted) return;
+
+    await activatePlayerArena(saved.pin, saved.nick, saved.cls || "Geral", row, true);
+    toast(`Partida restaurada na sala ${saved.pin}!`);
+  } catch (e) {}
 }
 
 function applyEventToLocalRoom(ev) {
@@ -1260,6 +1345,7 @@ function leaveCurrentMatchToHub() {
   if (twoMinTimerInterval) clearInterval(twoMinTimerInterval);
   activeRoomPin = "";
   activeRoomState = null;
+  clearSavedMatchContext();
   document.getElementById("activeArenaSection")?.classList.add("hidden");
   document.getElementById("btnLeaveActiveRoom")?.classList.add("hidden");
 }
@@ -1287,7 +1373,11 @@ async function loginFromTeacherRoute() {
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok || !data.access_token) return toast("E-mail ou senha inválidos.");
-  authSession = { access_token: data.access_token, user: data.user };
+  authSession = {
+    access_token: data.access_token,
+    refresh_token: data.refresh_token || authSession?.refresh_token || "",
+    user: data.user
+  };
   localStorage.setItem("csi_teacher_auth", JSON.stringify(authSession));
   await loadSessionAndProfile();
   await loadPlatformState();
@@ -2296,6 +2386,8 @@ async function initPortal() {
   } else {
     await navigateToRoute(postAuthRoute, true);
   }
+
+  await restoreMatchIfSavedAfterReload();
 }
 
 initPortal();
