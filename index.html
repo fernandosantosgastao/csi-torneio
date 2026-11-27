@@ -449,6 +449,12 @@
             </div>
           </div>
 
+          <div id="adminExclusiveNavBox" class="hidden" style="margin-bottom: 14px;">
+            <button type="button" class="btn-purple" id="btnOpenAdminPage" style="width:100%;" onclick="window.location.href='admin.html'">
+              🛡️ Abrir Central Master Admin
+            </button>
+          </div>
+
           <div id="adminBotControlBox" class="admin-control-box hidden">
             <div>
               <strong style="color:#e9d5ff; font-size:0.86rem;">🛡️ Controle Admin: Modo Teste (4 Bots)</strong>
@@ -649,8 +655,8 @@
     </div>
 
     <div id="mathCountdownBanner" class="math-timer-banner hidden">
-      <span>🧮 Aviso: a cada <strong>3 minutos</strong> de partida será aberta uma questão de matemática.</span>
-      <span>Próxima questão em: <strong class="math-timer-clock" id="mathCountdownClock">03:00</strong></span>
+      <span>🧮 Aviso: a cada <strong>2 minutos</strong> de partida será aberta uma questão de matemática.</span>
+      <span>Próxima questão em: <strong class="math-timer-clock" id="mathCountdownClock">02:00</strong></span>
     </div>
 
     <div id="studentWaitingLobby" class="card waiting-lobby-box">
@@ -694,7 +700,7 @@
         <span id="botTestStoryLabel" style="color:var(--text-muted); font-size:0.86rem; margin-left:8px;"></span>
       </div>
       <div style="display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
-        <div class="math-meter" id="botMathGateIndicator">🧮 Próx. Mat. em 03:00</div>
+        <div class="math-meter" id="botMathGateIndicator">🧮 Próx. Mat. em 02:00</div>
         <div>Seus Pontos: <strong id="botHumanScore" style="color:var(--gold); font-size:1.2rem;">0</strong></div>
         <div>Restantes: <strong id="botRemaining" style="color:var(--success); font-size:1.1rem;">16</strong></div>
         <button type="button" class="btn-gold btn-sm" onclick="startInstantBotMatch()">🔄 Novo Conto</button>
@@ -702,8 +708,8 @@
     </div>
 
     <div id="botMathCountdownBanner" class="math-timer-banner">
-      <span>🧮 Aviso: a cada <strong>3 minutos</strong> de partida será aberta uma questão de matemática.</span>
-      <span>Próxima questão em: <strong class="math-timer-clock" id="botMathCountdownClock">03:00</strong></span>
+      <span>🧮 Aviso: a cada <strong>2 minutos</strong> de partida será aberta uma questão de matemática.</span>
+      <span>Próxima questão em: <strong class="math-timer-clock" id="botMathCountdownClock">02:00</strong></span>
     </div>
 
     <div class="live-scoreboard" id="botScoreboard"></div>
@@ -753,7 +759,7 @@
     </div>
     <h2 style="margin:8px 0 6px 0; color:#f3e8ff;">Resolva para liberar o tabuleiro!</h2>
     <div id="mathAttemptsBadge" class="attempts-pill">Tentativas restantes: 3 de 3</div>
-    <p style="font-size:0.86rem; color:#cbd5e1; margin-bottom:10px;" id="mathTriggerReason">A partida completou 3 minutos! Resolva esta questão de matemática (máximo 3 tentativas antes da recomposição):</p>
+    <p style="font-size:0.86rem; color:#cbd5e1; margin-bottom:10px;" id="mathTriggerReason">A partida completou 2 minutos! Resolva esta questão de matemática (máximo 3 tentativas antes da recomposição):</p>
     <div id="mathQuestionBox" style="background:var(--bg-panel); padding:14px; border-radius:12px; font-size:1.05rem; line-height:1.5; margin-bottom:12px; border-left:4px solid var(--purple); color:#fff; font-weight:700;"></div>
     <div id="mathHint" class="hidden" style="margin-top:8px; padding:10px; background:rgba(244, 63, 94, 0.16); border:1px solid var(--danger); border-radius:8px; font-size:0.85rem; color:#fda4af;"></div>
     <div class="math-options" id="mathOptionsContainer"></div>
@@ -834,7 +840,7 @@
   CSI Torneio Morfológico &amp; Matemático • <a href="privacidade.html">Política de Privacidade (LGPD)</a>
 </footer>
 
-<script src="app.js?v=4"></script>
+<script src="app.js?v=5"></script>
 <script>
   document.addEventListener("DOMContentLoaded", () => {
     const loggedBox = document.getElementById("teacherLoggedBox");
