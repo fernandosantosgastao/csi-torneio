@@ -1,27 +1,22 @@
 {
   "name": "CSI Torneio Morfológico & Matemático",
   "short_name": "CSI Torneio",
-  "description": "Plataforma educacional gamificada ao vivo de Língua Portuguesa e Matemática para escolas e alunos.",
-  "start_url": "/index.html",
-  "scope": "/",
+  "description": "Plataforma gamificada de investigação textual e desafios matemáticos ao vivo.",
+  "start_url": "/",
   "display": "standalone",
   "orientation": "any",
-  "background_color": "#090d16",
-  "theme_color": "#0b1120",
-  "lang": "pt-BR",
-  "categories": ["education", "games"],
+  "background_color": "#050f24",
+  "theme_color": "#020817",
   "icons": [
     {
-      "src": "/icons/icon-192.png",
+      "src": "icons/icon-192.png",
       "sizes": "192x192",
-      "type": "image/png",
-      "purpose": "any maskable"
+      "type": "image/png"
     },
     {
-      "src": "/icons/icon-512.png",
+      "src": "icons/icon-512.png",
       "sizes": "512x512",
-      "type": "image/png",
-      "purpose": "any maskable"
+      "type": "image/png"
     }
   ]
 }
