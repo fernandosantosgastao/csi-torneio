@@ -433,7 +433,7 @@
           <div id="savedRoomsBox" class="saved-rooms-box">
             <div style="display:flex; justify-content:space-between; align-items:center;">
               <span id="savedRoomsHeaderTitle" style="font-size:0.84rem; font-weight:800; color:var(--accent);">📂 Minhas Salas Criadas</span>
-              <button type="button" class="btn-ghost btn-sm" onclick="loadRecentTeacherRooms()">↻ Atualizar</button>
+              <button type="button" class="btn-ghost btn-sm" id="btnRefreshRoomsList" onclick="loadRecentTeacherRooms()">↻ Atualizar</button>
             </div>
             <div id="savedRoomsList" class="saved-rooms-list">
               <div style="font-size:0.82rem; color:var(--text-muted);">Carregando salas...</div>
@@ -443,9 +443,20 @@
           <div id="roomHistoryBox" class="saved-rooms-box" style="margin-top:12px;">
             <div style="display:flex; justify-content:space-between; align-items:center;">
               <span style="font-size:0.84rem; font-weight:800; color:var(--gold);">🕘 Histórico de Salas Criadas</span>
+              <button type="button" class="btn-ghost btn-sm" id="btnRefreshRoomHistory" onclick="refreshRoomHistoryAndRooms()">↻ Atualizar</button>
             </div>
             <div id="roomHistoryList" class="saved-rooms-list" style="margin-top:8px;">
               <div style="font-size:0.8rem; color:var(--text-muted);">Nenhuma sala registrada no histórico ainda.</div>
+            </div>
+          </div>
+
+          <div id="adminDeletedRoomsBox" class="saved-rooms-box hidden" style="margin-top:12px;">
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+              <span style="font-size:0.84rem; font-weight:800; color:#fda4af;">🗂️ Salas Excluídas (Exclusivo Admin)</span>
+              <button type="button" class="btn-ghost btn-sm" id="btnRefreshDeletedRooms" onclick="renderDeletedRoomsFolder()">↻ Atualizar</button>
+            </div>
+            <div id="adminDeletedRoomsList" class="saved-rooms-list" style="margin-top:8px;">
+              <div style="font-size:0.8rem; color:var(--text-muted);">Nenhuma sala excluída no momento.</div>
             </div>
           </div>
 
@@ -461,7 +472,7 @@
     <div class="card card-ranking">
       <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:10px;">
         <h2 style="margin-bottom:0;">🏆 Ranking dos Melhores</h2>
-        <button type="button" class="btn-ghost btn-sm" onclick="loadBestPlayersRanking()">↻ Atualizar Ranking</button>
+        <button type="button" class="btn-ghost btn-sm" id="btnRefreshRanking" onclick="loadBestPlayersRanking()">↻ Atualizar Ranking</button>
       </div>
       <p style="margin-bottom:12px;">Destaques acumulados nas partidas registradas na plataforma (pontos, palavras encontradas e desafios matemáticos).</p>
       <div style="overflow-x:auto;">
