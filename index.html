@@ -133,9 +133,112 @@
       border: 1px solid rgba(251, 191, 36, 0.45);
     }
 
-    .player-actions-inline {
+    .podium-grid-3 {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+
+    .podium-card-item {
+      background: rgba(15, 36, 76, 0.85);
+      border: 1px solid rgba(148, 163, 184, 0.28);
+      border-radius: 14px;
+      padding: 14px;
+      text-align: center;
+    }
+
+    .podium-card-item.rank-1 { border-color: rgba(251, 191, 36, 0.75); }
+    .podium-card-item.rank-2 { border-color: rgba(148, 163, 184, 0.65); }
+    .podium-card-item.rank-3 { border-color: rgba(251, 146, 60, 0.65); }
+
+    .podium-medal-icon { font-size: 1.2rem; margin-bottom: 4px; }
+    .podium-name-txt { font-weight: 900; font-size: 0.98rem; color: #f8fafc; }
+    .podium-pts-txt { font-weight: 900; font-size: 0.92rem; color: var(--gold); margin-top: 3px; }
+
+    .console-split-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1.55fr) minmax(290px, 1fr);
+      gap: 18px;
+      align-items: start;
+    }
+
+    @media (max-width: 960px) {
+      .console-split-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .evidence-chips-wrap {
       display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 12px;
+      margin-bottom: 14px;
+    }
+
+    .evidence-chip-btn {
+      padding: 6px 10px;
+      border-radius: 999px;
+      font-size: 0.78rem;
+      font-weight: 800;
+      border: 1px solid rgba(148, 163, 184, 0.35);
+      background: rgba(15, 36, 76, 0.92);
+      color: #e2e8f0;
+    }
+
+    .evidence-chip-btn.found-chip {
+      color: #041024;
+      border-color: transparent;
+    }
+
+    .grammar-legend-box {
+      display: flex;
+      flex-wrap: wrap;
       gap: 6px;
+      padding-top: 10px;
+      border-top: 1px solid rgba(148, 163, 184, 0.18);
+    }
+
+    .legend-pill-tag {
+      padding: 4px 8px;
+      border-radius: 6px;
+      font-size: 0.72rem;
+      font-weight: 800;
+      color: #041024;
+    }
+
+    .status-pill-active {
+      display: inline-block;
+      padding: 3px 8px;
+      border-radius: 999px;
+      font-size: 0.72rem;
+      font-weight: 800;
+      background: rgba(16, 185, 129, 0.18);
+      color: #34d399;
+      border: 1px solid rgba(16, 185, 129, 0.45);
+    }
+
+    .status-pill-elim {
+      display: inline-block;
+      padding: 3px 8px;
+      border-radius: 999px;
+      font-size: 0.72rem;
+      font-weight: 800;
+      background: rgba(244, 63, 94, 0.18);
+      color: #fda4af;
+      border: 1px solid rgba(244, 63, 94, 0.45);
+    }
+
+    .mod-btn-group {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+
+    .mod-btn-row {
+      display: flex;
+      gap: 5px;
       flex-wrap: wrap;
     }
   </style>
@@ -162,9 +265,9 @@
   </div>
 
   <div class="header-actions">
-    <div class="badge-status"><span class="dot online" id="netDot"></span> <span id="netText">Online</span></div>
+    <div class="badge-status"><span class="dot online" id="netDot"></span> <span id="netText">Torneio Ao Vivo</span></div>
     <button type="button" class="btn-ghost btn-sm" id="btnFullscreenToggle" onclick="toggleFullscreenMode()" title="Tela cheia (F11)">⛶ Tela Cheia</button>
-    <button type="button" class="btn-ghost btn-sm hidden" id="btnLeaveActiveRoom" onclick="leaveCurrentMatchToHub()">Sair da Sala</button>
+    <button type="button" class="btn-ghost btn-sm hidden" id="btnLeaveActiveRoom" onclick="leaveCurrentMatchToHub()">Sair</button>
   </div>
 </header>
 
@@ -183,7 +286,7 @@
         <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap:10px;">
           <input type="text" id="quickCodeName" placeholder="Seu nome (Ex: Ana)">
           <input type="text" id="quickCodeClass" placeholder="Sua turma (Ex: 8º Ano B)">
-          <input type="text" id="quickCodePin" maxlength="4" placeholder="PIN (Ex: A1B2)" style="text-transform:uppercase; letter-spacing:2px; font-weight:800;">
+          <input type="text" id="quickCodePin" maxlength="4" placeholder="PIN (Ex: T80A)" style="text-transform:uppercase; letter-spacing:2px; font-weight:800;">
           <button type="button" class="btn-success" onclick="enterRoomByQuickCode()">🚀 Entrar com Código</button>
         </div>
       </div>
@@ -318,7 +421,7 @@
     </div>
   </section>
 
-  <!-- ROTA 3: GERADOR DE SALAS (/gerador-de-salas) -->
+  <!-- ROTA 3: GERADOR DE SALAS (/gerador-de-salas) - VISÃO CLÁSSICA DO PROFESSOR -->
   <section id="routeCreateClass" class="route-view hidden">
     <div id="teacherLoginCard" class="card card-teacher" style="max-width:520px; margin:0 auto;">
       <h2>🧑‍🏫 Acesso Exclusivo para Professores</h2>
@@ -342,8 +445,9 @@
             <p style="margin-bottom:0;">Professor: <strong id="teacherActiveName" style="color:var(--gold);">---</strong></p>
           </div>
           <div style="display:flex; gap:8px; flex-wrap:wrap;">
-            <button type="button" class="btn-ghost btn-sm" onclick="inspectRoomInConsole(activeRoomPin)">↻ Sincronizar Sala</button>
-            <button type="button" class="btn-ghost btn-sm" onclick="logoutAccountSession()">Sair da Conta</button>
+            <input type="text" id="openExistingPinInput" maxlength="4" placeholder="Abrir PIN (Ex: T80A)" style="width:150px; text-transform:uppercase; letter-spacing:2px;">
+            <button type="button" class="btn-primary btn-sm" onclick="inspectRoomInConsole(document.getElementById('openExistingPinInput')?.value)">Carregar Sala</button>
+            <button type="button" class="btn-ghost btn-sm" onclick="logoutAccountSession()">Sair</button>
           </div>
         </div>
 
@@ -356,63 +460,75 @@
 
       <div id="teacherLiveConsole" class="hidden">
         <div class="room-banner">
-          <div>
-            <div style="font-size:0.78rem; color:var(--accent); font-weight:800;">CÓDIGO DA SALA:</div>
-            <div style="display:flex; align-items:center; gap:14px; margin-top:6px;">
-              <div class="pin-display" id="consolePinDisplay">----</div>
-              <div>
-                <div id="consoleRoomName" style="font-weight:900; font-size:1.1rem;">Sala</div>
-                <div id="consoleRoomStatus" style="color:var(--gold); font-size:0.86rem; font-weight:800;">Espera</div>
-                <div id="consolePlayersCount" style="color:var(--success); font-size:0.86rem; font-weight:700;">0 jogadores</div>
-              </div>
+          <div style="display:flex; align-items:center; gap:16px; flex-wrap:wrap;">
+            <div>
+              <div style="font-size:0.74rem; color:var(--accent); font-weight:800; letter-spacing:0.6px;">CÓDIGO DE ACESSO DA TURMA:</div>
+              <div class="pin-display" id="consolePinDisplay">T80A</div>
+            </div>
+            <div>
+              <div id="consoleRoomName" style="font-weight:900; font-size:1.15rem;">Turma A</div>
+              <div id="consoleRoomPhaseTitle" style="color:var(--gold); font-size:0.86rem; font-weight:800;">Fase 1 • "O Laboratório do Alquimista"</div>
+              <div id="consolePlayersCount" style="color:#cbd5e1; font-size:0.84rem; font-weight:700;">0 ativos / 0 total</div>
             </div>
           </div>
+
           <div style="display:flex; gap:8px; flex-wrap:wrap;">
-            <button type="button" class="btn-success" id="btnConsoleStart" onclick="consoleStartMatch()">🚀 Iniciar Partida</button>
-            <button type="button" class="btn-gold btn-sm" onclick="consoleNewMatch()">🔄 Nova Partida</button>
-            <button type="button" class="btn-danger btn-sm" onclick="consoleEndMatch()">⏹️ Encerrar Partida</button>
-            <button type="button" class="btn-gold btn-sm" onclick="consoleAdvanceStage()">⏭️ Próxima Fase</button>
-            <button type="button" class="btn-ghost btn-sm" id="btnConsoleToggleRoom" onclick="consoleToggleClose()">🔒 Fechar Sala</button>
+            <button type="button" class="btn-gold btn-sm" id="btnConsoleStartOrNext" onclick="consoleAdvanceStage()">⏭️ Encerrar Fase &amp; Classificar</button>
+            <button type="button" class="btn-danger btn-sm" id="btnConsoleToggleRoom" onclick="consoleToggleClose()">🔒 Encerrar Sala</button>
+            <button type="button" class="btn-success btn-sm" onclick="exportRoomCsv()">📥 Exportar (CSV)</button>
+            <button type="button" class="btn-primary btn-sm" onclick="consoleNewMatch()">🔄 Novo Torneio</button>
           </div>
         </div>
 
-        <div class="card">
-          <h2>👥 Jogadores na Sala &amp; Controles ao Vivo</h2>
-          <div style="overflow-x:auto;">
-            <table>
-              <thead>
-                <tr>
-                  <th>Pos.</th>
-                  <th>Jogador</th>
-                  <th>Turma</th>
-                  <th>Status</th>
-                  <th>Pontos</th>
-                  <th>Palavras</th>
-                  <th>Mat.</th>
-                  <th>Ações</th>
-                </tr>
-              </thead>
-              <tbody id="consoleScoreTableBody">
-                <tr><td colspan="8" style="text-align:center; color:var(--text-muted);">Aguardando jogadores...</td></tr>
-              </tbody>
-            </table>
+        <div class="console-split-grid">
+          <div class="card">
+            <h2 style="margin-bottom:14px;">🏆 Participantes &amp; Classificação ao Vivo</h2>
+
+            <div class="podium-grid-3" id="consolePodiumGrid"></div>
+
+            <div style="overflow-x:auto;">
+              <table>
+                <thead>
+                  <tr>
+                    <th>POS.</th>
+                    <th>INVESTIGADOR</th>
+                    <th>STATUS</th>
+                    <th>PTS FASE</th>
+                    <th>PTS TOTAL</th>
+                    <th>PALAVRAS</th>
+                    <th>MAT.</th>
+                    <th>MODERAÇÃO</th>
+                  </tr>
+                </thead>
+                <tbody id="consoleScoreTableBody">
+                  <tr><td colspan="8" style="text-align:center; color:var(--text-muted);">Aguardando jogadores...</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="card">
+            <h2 id="consoleEvidenceTitle" style="margin-bottom:6px;">📋 Evidências da Fase (0/16)</h2>
+            <p style="font-size:0.82rem; color:var(--text-muted); margin-bottom:10px;">Enquanto a sala estiver aguardando, os alunos ficam na tela de espera sem poder ver o tabuleiro.</p>
+            <div class="evidence-chips-wrap" id="consoleEvidenceChips"></div>
+            <div class="grammar-legend-box" id="consoleGrammarLegend"></div>
           </div>
         </div>
       </div>
     </div>
   </section>
 
-  <!-- ROTA 4: PAINEL DE CONTROLE (/painel-de-controle) -->
+  <!-- ROTA 4: PAINEL DE CONTROLE (/painel-de-controle) - VISÃO MASTER DO ADMIN (DONO) -->
   <section id="routeControlPanel" class="route-view hidden">
     <div class="hero-panel" style="border-color: rgba(192, 132, 252, 0.55);">
       <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
         <div>
-          <span class="brand-pill" id="controlRoleBadge">ADMIN</span>
-          <h1 style="font-size:1.5rem; font-weight:900; margin-top:6px;">Painel de Controle da Plataforma</h1>
+          <span class="brand-pill" id="controlRoleBadge">MASTER ADMIN</span>
+          <h1 style="font-size:1.5rem; font-weight:900; margin-top:6px;">Painel Master do Administrador</h1>
           <p style="color:#cbd5e1; font-size:0.88rem; margin-top:4px;">Operador: <strong id="controlOperatorEmail" style="color:var(--gold);">---</strong></p>
         </div>
         <div style="display:flex; gap:8px; flex-wrap:wrap;">
-          <button type="button" class="btn-primary btn-sm" onclick="refreshControlPanel()">↻ Atualizar Painel</button>
+          <button type="button" class="btn-primary btn-sm" onclick="refreshControlPanel()">↻ Atualizar Tudo</button>
           <button type="button" class="btn-danger btn-sm" id="btnControlNukeAll" onclick="controlCloseAllRoomsAndClearRanking()">🧨 Fechar Salas e Limpar Ranking</button>
         </div>
       </div>
@@ -424,7 +540,7 @@
         <div class="kpi-num" id="ctrlKpiUsers">0</div>
       </div>
       <div class="kpi-box">
-        <div style="font-size:0.76rem; color:var(--text-muted); font-weight:800;">SALAS MAPEADAS</div>
+        <div style="font-size:0.76rem; color:var(--text-muted); font-weight:800;">TODAS AS SALAS</div>
         <div class="kpi-num" id="ctrlKpiRooms">0</div>
       </div>
       <div class="kpi-box">
@@ -483,13 +599,13 @@
 
     <div class="card card-ranking" style="margin-top:18px;">
       <h2>🏫 Todas as Salas da Plataforma (24h, Professores e Ativas)</h2>
-      <p style="margin-bottom:12px;">Clique em <strong>Abrir Sala</strong> para inspecionar quem está na sala e aplicar ações ao vivo (+50 pts, reviver, nova partida, encerrar ou fechar).</p>
+      <p style="margin-bottom:12px;">Visão completa de todas as salas criadas por qualquer usuário, salas 24h e salas com eventos ao vivo.</p>
       <div style="overflow-x:auto;">
         <table>
           <thead>
             <tr>
               <th>PIN</th>
-              <th>Nome</th>
+              <th>Sala / Criador</th>
               <th>Modo</th>
               <th>Jogadores</th>
               <th>Status</th>
@@ -505,31 +621,40 @@
 
     <!-- INSPEÇÃO COMPLETA DA SALA SELECIONADA PELO ADMIN -->
     <div id="adminRoomInspector" class="card card-teacher hidden" style="margin-top:18px;">
-      <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:12px;">
+      <div class="room-banner" style="margin-bottom:16px;">
         <div>
-          <h2 style="margin-bottom:2px;">🔎 Inspeção da Sala <span id="inspRoomPin" style="color:var(--gold);">----</span></h2>
-          <div id="inspRoomMeta" style="font-size:0.85rem; color:#cbd5e1;">---</div>
+          <div style="font-size:0.74rem; color:var(--accent); font-weight:800;">SALA SELECIONADA:</div>
+          <div style="display:flex; align-items:center; gap:14px; margin-top:4px; flex-wrap:wrap;">
+            <div class="pin-display" id="inspRoomPin">----</div>
+            <div>
+              <div id="inspRoomTitle" style="font-weight:900; font-size:1.1rem;">Sala</div>
+              <div id="inspRoomMeta" style="font-size:0.84rem; color:#cbd5e1;">---</div>
+            </div>
+          </div>
         </div>
         <div style="display:flex; gap:8px; flex-wrap:wrap;">
           <button type="button" class="btn-success btn-sm" onclick="consoleStartMatch()">🚀 Iniciar</button>
-          <button type="button" class="btn-gold btn-sm" onclick="consoleNewMatch()">🔄 Nova Partida</button>
-          <button type="button" class="btn-danger btn-sm" onclick="consoleEndMatch()">⏹️ Encerrar Partida</button>
-          <button type="button" class="btn-ghost btn-sm" onclick="consoleToggleClose()">🔒 Fechar/Reabrir Sala</button>
+          <button type="button" class="btn-gold btn-sm" onclick="consoleAdvanceStage()">⏭️ Encerrar Fase &amp; Classificar</button>
+          <button type="button" class="btn-danger btn-sm" onclick="consoleToggleClose()">🔒 Fechar/Reabrir Sala</button>
+          <button type="button" class="btn-ghost btn-sm" onclick="exportRoomCsv()">📥 CSV</button>
+          <button type="button" class="btn-primary btn-sm" onclick="consoleNewMatch()">🔄 Novo Torneio</button>
         </div>
       </div>
+
+      <div class="podium-grid-3" id="inspPodiumGrid"></div>
 
       <div style="overflow-x:auto;">
         <table>
           <thead>
             <tr>
-              <th>Pos.</th>
-              <th>Jogador</th>
-              <th>Turma</th>
-              <th>Status</th>
-              <th>Pontos</th>
-              <th>Palavras</th>
-              <th>Mat.</th>
-              <th>Ações do Admin</th>
+              <th>POS.</th>
+              <th>INVESTIGADOR</th>
+              <th>STATUS</th>
+              <th>PTS FASE</th>
+              <th>PTS TOTAL</th>
+              <th>PALAVRAS</th>
+              <th>MAT.</th>
+              <th>MODERAÇÃO</th>
             </tr>
           </thead>
           <tbody id="inspPlayersBody">
@@ -567,6 +692,6 @@
   </div>
 </div>
 
-<script src="app.js?v=15"></script>
+<script src="app.js?v=16"></script>
 </body>
 </html>
