@@ -12,6 +12,7 @@ const CLASS_COLORS = {
 };
 
 const GRAMMAR_CLASSES = Object.keys(CLASS_COLORS);
+const MAX_QUIZ_ATTEMPTS = 3;
 
 const DEFAULT_STORIES = [
   {
@@ -1494,6 +1495,7 @@ let myName = "";
 let myClass = "";
 let activeQuizWord = null;
 let quizAttempts = 0;
+let wrongQuizClasses = new Set();
 
 let myLocalWords = new Set();
 let myLocalScore = 0;
@@ -2040,6 +2042,7 @@ function applySingleBroadcastActionToTeacherState(msg) {
       gameState.claimedWords[w] = { by: p.name, points: msg.points };
       p.score = Number(p.score || 0) + Number(msg.points || 0);
       p.stageScore = Number(p.stageScore || 0) + Number(msg.points || 0);
+      if (!Array.isArray(p.words)) p.words = [];
       if (!p.words.includes(w)) p.words.push(w);
       dirty = true;
     }
@@ -3306,34 +3309,48 @@ function checkSelectedWord() {
   openQuizModal(foundObj);
 }
 
-function openQuizModal(wordObj) {
-  activeQuizWord = wordObj;
-  quizAttempts = 0;
-  document.getElementById("modalWordText").textContent = wordObj.display;
-  document.getElementById("modalContextSentence").textContent = wordObj.sentence;
-  document.getElementById("modalHint").classList.add("hidden");
-
+function renderQuizOptionsButtons() {
   const optsEl = document.getElementById("classOptionsContainer");
   optsEl.innerHTML = "";
   GRAMMAR_CLASSES.forEach(cls => {
+    const isWrong = wrongQuizClasses.has(cls);
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = "class-btn";
-    btn.innerHTML = `<span class="color-dot" style="background:${CLASS_COLORS[cls]};"></span> ${cls}`;
+    btn.disabled = isWrong;
+    if (isWrong) {
+      btn.style.opacity = "0.75";
+      btn.style.background = "rgba(244, 63, 94, 0.18)";
+      btn.style.borderColor = "#f43f5e";
+      btn.style.color = "#fda4af";
+      btn.style.textDecoration = "line-through";
+    }
+    btn.innerHTML = `<span class="color-dot" style="background:${CLASS_COLORS[cls]};"></span> ${cls}${isWrong ? " ✕" : ""}`;
     btn.addEventListener("click", () => submitClassAnswer(cls));
     optsEl.appendChild(btn);
   });
+}
 
+function openQuizModal(wordObj) {
+  activeQuizWord = wordObj;
+  quizAttempts = 0;
+  wrongQuizClasses = new Set();
+  document.getElementById("modalWordText").textContent = `${wordObj.display} (Tentativa 1/${MAX_QUIZ_ATTEMPTS})`;
+  document.getElementById("modalContextSentence").textContent = wordObj.sentence;
+  document.getElementById("modalHint").classList.add("hidden");
+
+  renderQuizOptionsButtons();
   document.getElementById("quizModal").classList.remove("hidden");
 }
 
 function closeQuizModal() {
   document.getElementById("quizModal").classList.add("hidden");
   activeQuizWord = null;
+  wrongQuizClasses = new Set();
 }
 
 async function submitClassAnswer(chosenClass) {
-  if (!activeQuizWord) return;
+  if (!activeQuizWord || wrongQuizClasses.has(chosenClass)) return;
 
   if (isBotModeActive) {
     if (botClaimedWords[activeQuizWord.word]) {
@@ -3360,9 +3377,19 @@ async function submitClassAnswer(chosenClass) {
       }
     } else {
       quizAttempts++;
+      wrongQuizClasses.add(chosenClass);
       playerStreak = 0;
+      renderQuizOptionsButtons();
       const hintBox = document.getElementById("modalHint");
-      hintBox.textContent = `❌ Não é ${chosenClass}. Dica: ${activeQuizWord.hint}`;
+      if (quizAttempts >= MAX_QUIZ_ATTEMPTS) {
+        const wordDisplay = activeQuizWord.display;
+        closeQuizModal();
+        showToast(`❌ Esgotaram as ${MAX_QUIZ_ATTEMPTS} tentativas em ${wordDisplay}! Continue buscando no tabuleiro.`);
+        return;
+      }
+      const left = MAX_QUIZ_ATTEMPTS - quizAttempts;
+      document.getElementById("modalWordText").textContent = `${activeQuizWord.display} (Tentativa ${quizAttempts + 1}/${MAX_QUIZ_ATTEMPTS})`;
+      hintBox.textContent = `❌ "${chosenClass}" incorreto (${left} tentativa(s) restante(s)). Dica: ${activeQuizWord.hint}`;
       hintBox.classList.remove("hidden");
     }
     return;
@@ -3415,11 +3442,23 @@ async function submitClassAnswer(chosenClass) {
     ]);
   } else {
     quizAttempts++;
+    wrongQuizClasses.add(chosenClass);
     playerStreak = 0;
-    const hintBox = document.getElementById("modalHint");
-    hintBox.textContent = `❌ Não é ${chosenClass}. Explicação: ${activeQuizWord.hint}`;
-    hintBox.classList.remove("hidden");
+    renderQuizOptionsButtons();
     await dbPushEvent(roomPin, { type: "REGISTER_ERROR", playerId: myPlayerId, name: myName, cls: myClass });
+
+    if (quizAttempts >= MAX_QUIZ_ATTEMPTS) {
+      const wordDisplay = activeQuizWord.display;
+      closeQuizModal();
+      showToast(`❌ Você atingiu o limite de ${MAX_QUIZ_ATTEMPTS} tentativas em ${wordDisplay}!`);
+      return;
+    }
+
+    const left = MAX_QUIZ_ATTEMPTS - quizAttempts;
+    document.getElementById("modalWordText").textContent = `${activeQuizWord.display} (Tentativa ${quizAttempts + 1}/${MAX_QUIZ_ATTEMPTS})`;
+    const hintBox = document.getElementById("modalHint");
+    hintBox.textContent = `❌ "${chosenClass}" incorreto (${left} tentativa(s) restante(s)). Explicação: ${activeQuizWord.hint}`;
+    hintBox.classList.remove("hidden");
   }
 }
 
