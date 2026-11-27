@@ -206,12 +206,38 @@ async function syncCloudModeratorsList() {
   } catch (e) {}
 }
 
-function canModerateCurrentRoom() {
+function isUserAdmin() {
+  return !!(teacherAuthSession && teacherProfile && teacherProfile.role === "admin");
+}
+
+function isUserModerator() {
   if (!teacherAuthSession || !teacherProfile) return false;
   if (teacherProfile.role === "admin") return true;
   const myEmail = String(teacherProfile.email || teacherAuthSession.user?.email || "").trim().toLowerCase();
   const roomMods = Array.isArray(gameState.moderators) ? gameState.moderators : [];
   return !!(myEmail && (moderatorsList.includes(myEmail) || roomMods.includes(myEmail)));
+}
+
+function canModerateCurrentRoom() {
+  return isUserModerator();
+}
+
+function canUserManageRoom(roomRowOrState, pin) {
+  if (isUserAdmin()) return true;
+  const myUserId = teacherAuthSession?.user?.id || teacherProfile?.id || "";
+  const myEmail = String(teacherProfile?.email || teacherAuthSession?.user?.email || "").trim().toLowerCase();
+  const ownerId = roomRowOrState?.owner_id || roomRowOrState?.ownerId || "";
+  const ownerEmail = String(roomRowOrState?.state?.ownerEmail || roomRowOrState?.ownerEmail || "").trim().toLowerCase();
+  const byId = !!(myUserId && ownerId && String(ownerId) === String(myUserId));
+  const byEmail = !!(myEmail && ownerEmail && myEmail === ownerEmail);
+  if (byId || byEmail) return true;
+
+  const cleanPin = String(pin || "").trim().toUpperCase();
+  const histEntry = roomHistoryEntries.find(h => h.pin === cleanPin);
+  if (histEntry && myEmail && histEntry.teacherEmail && histEntry.teacherEmail === myEmail) {
+    return true;
+  }
+  return false;
 }
 
 function renderModeratorsUI() {
@@ -230,7 +256,7 @@ function renderModeratorsUI() {
 }
 
 async function addModeratorEmail() {
-  if (!teacherProfile || teacherProfile.role !== "admin") {
+  if (!isUserAdmin()) {
     showToast("⛔ Apenas o administrador pode adicionar moderadores.");
     return;
   }
@@ -267,7 +293,7 @@ async function addModeratorEmail() {
 }
 
 async function removeModeratorEmail(email) {
-  if (!teacherProfile || teacherProfile.role !== "admin") return;
+  if (!isUserAdmin()) return;
   moderatorsList = saveModeratorsList(moderatorsList.filter(e => e !== email));
   renderModeratorsUI();
 
@@ -592,6 +618,7 @@ let roomChannelReady = false;
 let teacherSaveDebounceTimer = null;
 
 let roomHistoryEntries = [];
+let deletedRoomSnapshots = {};
 let playerStreak = 0;
 
 function loadRoomHistoryLocal() {
@@ -602,29 +629,58 @@ function loadRoomHistoryLocal() {
   } catch (e) {
     roomHistoryEntries = [];
   }
+  try {
+    const snapRaw = localStorage.getItem("csi_deleted_room_snapshots_v1");
+    const snapParsed = snapRaw ? JSON.parse(snapRaw) : {};
+    deletedRoomSnapshots = (snapParsed && typeof snapParsed === "object") ? snapParsed : {};
+  } catch (e) {
+    deletedRoomSnapshots = {};
+  }
 }
 
 function saveRoomHistoryLocal() {
   try {
-    localStorage.setItem("csi_room_history_v2", JSON.stringify(roomHistoryEntries.slice(0, 40)));
+    localStorage.setItem("csi_room_history_v2", JSON.stringify(roomHistoryEntries.slice(0, 100)));
+  } catch (e) {}
+  try {
+    localStorage.setItem("csi_deleted_room_snapshots_v1", JSON.stringify(deletedRoomSnapshots));
   } catch (e) {}
 }
 
-async function logRoomHistoryEvent(pin, label, eventType, isOpen) {
+function clearRoomHistoryManually() {
+  roomHistoryEntries = [];
+  deletedRoomSnapshots = {};
+  try {
+    localStorage.removeItem("csi_room_history_v2");
+    localStorage.removeItem("csi_deleted_room_snapshots_v1");
+  } catch (e) {}
+  renderRoomHistoryPanel();
+  showToast("🧹 Histórico limpo manualmente.");
+}
+
+async function logRoomHistoryEvent(pin, label, eventType, isOpen, stateSnapshot = null) {
   const cleanPin = String(pin || "").trim().toUpperCase();
   if (!cleanPin) return;
   const cleanLabel = String(label || `Sala ${cleanPin}`).trim();
   const teacherEmail = String(teacherProfile?.email || teacherAuthSession?.user?.email || "").trim().toLowerCase() || null;
+  const existing = roomHistoryEntries.find(r => r.pin === cleanPin);
+
+  if (stateSnapshot && typeof stateSnapshot === "object" && Array.isArray(stateSnapshot.grid)) {
+    deletedRoomSnapshots[cleanPin] = JSON.parse(JSON.stringify(stateSnapshot));
+  }
+
+  const entry = {
+    pin: cleanPin,
+    label: cleanLabel,
+    teacherEmail: existing?.teacherEmail || teacherEmail,
+    eventType,
+    isOpen: !!isOpen,
+    deleted: eventType === "DELETED" ? true : (eventType === "RESTORED" || eventType === "REOPENED" ? false : !!existing?.deleted),
+    at: new Date().toISOString()
+  };
 
   roomHistoryEntries = [
-    {
-      pin: cleanPin,
-      label: cleanLabel,
-      teacherEmail,
-      eventType,
-      isOpen: !!isOpen,
-      at: new Date().toISOString()
-    },
+    entry,
     ...roomHistoryEntries.filter(r => r.pin !== cleanPin)
   ];
   saveRoomHistoryLocal();
@@ -641,7 +697,7 @@ async function logRoomHistoryEvent(pin, label, eventType, isOpen) {
       body: JSON.stringify({
         room_pin: cleanPin,
         room_label: cleanLabel,
-        teacher_email: teacherEmail,
+        teacher_email: entry.teacherEmail,
         event_type: eventType,
         is_open: !!isOpen
       })
@@ -653,19 +709,37 @@ function renderRoomHistoryPanel() {
   const listEl = document.getElementById("roomHistoryList");
   if (!listEl) return;
 
-  if (!roomHistoryEntries || roomHistoryEntries.length === 0) {
+  const isAdmin = isUserAdmin();
+  const myEmail = String(teacherProfile?.email || teacherAuthSession?.user?.email || "").trim().toLowerCase();
+
+  const visibleHistory = (roomHistoryEntries || []).filter(item => {
+    if (isAdmin) return true;
+    return !!(myEmail && item.teacherEmail && String(item.teacherEmail).toLowerCase() === myEmail);
+  });
+
+  if (visibleHistory.length === 0) {
     listEl.innerHTML = `<div style="font-size:0.8rem; color:var(--text-muted);">Nenhuma sala registrada no histórico ainda.</div>`;
     return;
   }
 
-  listEl.innerHTML = roomHistoryEntries.map(item => {
-    const badge = item.isOpen
-      ? `<span style="color:#34d399; font-weight:800;">● Aberta</span>`
-      : `<span style="color:#fda4af; font-weight:800;">● Encerrada</span>`;
+  listEl.innerHTML = visibleHistory.map(item => {
+    const canManage = canUserManageRoom(item, item.pin);
+    const badge = item.deleted
+      ? `<span style="color:#fda4af; font-weight:800;">🗑️ Excluída</span>`
+      : (item.isOpen
+        ? `<span style="color:#34d399; font-weight:800;">● Aberta</span>`
+        : `<span style="color:#fbbf24; font-weight:800;">🔒 Fechada</span>`);
 
-    const actionBtn = item.isOpen
-      ? `<button type="button" class="btn-ghost btn-sm" onclick="closeRoomByPin('${item.pin}', '${item.label.replace(/'/g, "\\'")}')">🔒 Fechar</button>`
-      : `<button type="button" class="btn-success btn-sm" onclick="reopenRoomByPin('${item.pin}', '${item.label.replace(/'/g, "\\'")}')">🔓 Reabrir Sala</button>`;
+    let actionBtn = "";
+    if (item.deleted) {
+      if (isAdmin && deletedRoomSnapshots[item.pin]) {
+        actionBtn = `<button type="button" class="btn-gold btn-sm" onclick="restoreDeletedRoomByPin('${item.pin}', '${item.label.replace(/'/g, "\\'")}')">♻️ Restaurar Sala</button>`;
+      }
+    } else if (canManage) {
+      actionBtn = item.isOpen
+        ? `<button type="button" class="btn-ghost btn-sm" onclick="closeRoomByPin('${item.pin}', '${item.label.replace(/'/g, "\\'")}')">🔒 Fechar</button>`
+        : `<button type="button" class="btn-success btn-sm" onclick="reopenRoomByPin('${item.pin}', '${item.label.replace(/'/g, "\\'")}')">🔓 Reabrir Sala</button>`;
+    }
 
     return `
       <div class="saved-room-row">
@@ -680,6 +754,120 @@ function renderRoomHistoryPanel() {
   }).join("");
 }
 
+async function deleteRoomByPin(targetPin, targetLabel) {
+  const cleanPin = String(targetPin || roomPin || "").trim().toUpperCase();
+  if (!cleanPin) return;
+
+  const lookup = await dbGetRoom(cleanPin, false);
+  const currentState = (lookup && lookup.exists && lookup.state)
+    ? lookup.state
+    : (cleanPin === roomPin ? gameState : null);
+
+  if (!canUserManageRoom(lookup, cleanPin) && !canUserManageRoom(currentState, cleanPin)) {
+    showToast("⛔ Apenas o criador da sala ou o Admin pode excluir esta sala.");
+    return;
+  }
+
+  const snapshot = currentState && currentState.grid
+    ? { ...currentState, closed: false, started: false, v: (currentState.v || 1) + 1 }
+    : (deletedRoomSnapshots[cleanPin] || null);
+
+  if (currentState) {
+    const closedBeforeDelete = { ...currentState, closed: true, started: false, v: (currentState.v || 1) + 1 };
+    await dbSaveRoom(cleanPin, closedBeforeDelete, !teacherAuthSession).catch(() => {});
+  }
+
+  await fetch(`${SUPABASE_URL}/rest/v1/salas?pin=eq.${encodeURIComponent(cleanPin)}`, {
+    method: "DELETE",
+    headers: getAuthHeaders(false)
+  }).catch(() => {});
+
+  if (cleanPin === roomPin) {
+    clearSessionState();
+    resetToLobby();
+  }
+
+  await logRoomHistoryEvent(cleanPin, targetLabel || currentState?.roomLabel || `Sala ${cleanPin}`, "DELETED", false, snapshot);
+  await loadRecentTeacherRooms();
+  showToast(`🗑️ Sala ${cleanPin} excluída (disponível no histórico para restauração pelo Admin).`);
+}
+
+async function restoreDeletedRoomByPin(targetPin, targetLabel) {
+  if (!isUserAdmin()) {
+    showToast("⛔ Apenas o Admin pode restaurar salas excluídas.");
+    return;
+  }
+  const cleanPin = String(targetPin || "").trim().toUpperCase();
+  const snap = deletedRoomSnapshots[cleanPin];
+  if (!snap || !Array.isArray(snap.grid)) {
+    showToast(`⚠️ Sem snapshot salvo para restaurar a sala ${cleanPin}.`);
+    return;
+  }
+
+  const restoredState = {
+    ...snap,
+    closed: false,
+    v: (snap.v || 1) + 1
+  };
+
+  const saved = await dbSaveRoom(cleanPin, restoredState, false);
+  if (!saved.ok) {
+    showToast("⚠️ Erro ao restaurar sala no banco: " + saved.error);
+    return;
+  }
+
+  await logRoomHistoryEvent(cleanPin, targetLabel || restoredState.roomLabel || `Sala ${cleanPin}`, "RESTORED", true, restoredState);
+  await loadRecentTeacherRooms();
+  await createTeacherRoom(cleanPin, targetLabel || restoredState.roomLabel || `Sala ${cleanPin}`);
+  showToast(`♻️ Sala ${cleanPin} restaurada com sucesso pelo Admin!`);
+}
+
+async function adminNukeAllRoomsAndRanking() {
+  if (!isUserAdmin()) {
+    showToast("⛔ Apenas o Admin pode executar esta ação.");
+    return;
+  }
+  const confirmed = window.confirm(
+    "ATENÇÃO ADMIN: Isso vai FECHAR e EXCLUIR TODAS as salas criadas e LIMPAR o ranking. O histórico será mantido até você limpar manualmente. Deseja continuar?"
+  );
+  if (!confirmed) return;
+
+  try {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/salas?select=pin,state`, {
+      cache: "no-store",
+      headers: { "apikey": SUPABASE_KEY }
+    });
+    const rows = res.ok ? await res.json() : [];
+
+    for (const r of (Array.isArray(rows) ? rows : [])) {
+      if (!r || !r.pin) continue;
+      const p = String(r.pin).trim().toUpperCase();
+      const st = r.state || {};
+      await logRoomHistoryEvent(p, st.roomLabel || `Sala ${p}`, "DELETED", false, st);
+    }
+
+    await fetch(`${SUPABASE_URL}/rest/v1/salas?pin=not.is.null`, {
+      method: "DELETE",
+      headers: getAuthHeaders(false)
+    }).catch(() => {});
+
+    await fetch(`${SUPABASE_URL}/rest/v1/global_leaderboard?id=not.is.null`, {
+      method: "DELETE",
+      headers: getAuthHeaders(false)
+    }).catch(() => {});
+  } catch (e) {}
+
+  try {
+    localStorage.removeItem("csi_leaderboard_cache");
+  } catch (e) {}
+
+  clearSessionState();
+  resetToLobby();
+  await loadBestPlayersRanking();
+  await loadRecentTeacherRooms();
+  showToast("🧨 Todas as salas foram fechadas/excluídas e o ranking foi limpo! Histórico preservado.");
+}
+
 async function closeRoomByPin(targetPin, targetLabel) {
   const cleanPin = String(targetPin || roomPin || "").trim().toUpperCase();
   if (!cleanPin) return;
@@ -688,6 +876,11 @@ async function closeRoomByPin(targetPin, targetLabel) {
   const currentState = (lookup && lookup.exists && lookup.state)
     ? lookup.state
     : (cleanPin === roomPin ? gameState : { players: {} });
+
+  if (!canUserManageRoom(lookup, cleanPin) && !canUserManageRoom(currentState, cleanPin)) {
+    showToast("⛔ Apenas o criador da sala ou o Admin pode fechar esta sala.");
+    return;
+  }
 
   const closedState = {
     ...currentState,
@@ -703,7 +896,7 @@ async function closeRoomByPin(targetPin, targetLabel) {
 
   await dbSaveRoom(cleanPin, closedState, !teacherAuthSession);
   broadcastRoomStateNow();
-  await logRoomHistoryEvent(cleanPin, targetLabel || closedState.roomLabel || `Sala ${cleanPin}`, "CLOSED", false);
+  await logRoomHistoryEvent(cleanPin, targetLabel || closedState.roomLabel || `Sala ${cleanPin}`, "CLOSED", false, closedState);
   await loadRecentTeacherRooms();
   showToast(`🔒 Sala ${cleanPin} encerrada! Todos os alunos foram removidos e novas entradas estão bloqueadas.`);
 }
@@ -713,19 +906,28 @@ async function reopenRoomByPin(targetPin, targetLabel) {
   if (!cleanPin) return;
 
   const lookup = await dbGetRoom(cleanPin, false);
-  if (!lookup || !lookup.exists || !lookup.state) {
+  const currentState = (lookup && lookup.exists && lookup.state)
+    ? lookup.state
+    : deletedRoomSnapshots[cleanPin];
+
+  if (!canUserManageRoom(lookup, cleanPin) && !canUserManageRoom(currentState, cleanPin)) {
+    showToast("⛔ Apenas o criador da sala ou o Admin pode reabrir esta sala.");
+    return;
+  }
+
+  if (!currentState) {
     showToast(`Não foi possível localizar os dados da sala ${cleanPin}.`);
     return;
   }
 
   const reopenedState = {
-    ...lookup.state,
+    ...currentState,
     closed: false,
-    v: (lookup.state.v || 1) + 1
+    v: (currentState.v || 1) + 1
   };
 
   await dbSaveRoom(cleanPin, reopenedState, !teacherAuthSession);
-  await logRoomHistoryEvent(cleanPin, targetLabel || reopenedState.roomLabel || `Sala ${cleanPin}`, "REOPENED", true);
+  await logRoomHistoryEvent(cleanPin, targetLabel || reopenedState.roomLabel || `Sala ${cleanPin}`, "REOPENED", true, reopenedState);
   await loadRecentTeacherRooms();
 
   if (teacherAuthSession && isSubscriptionValid(teacherProfile)) {
@@ -1086,7 +1288,7 @@ async function loadBestPlayersRanking() {
       headers: { "apikey": SUPABASE_KEY }
     });
     if (!salasRes.ok) {
-      tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; color:var(--text-muted);">Sem dados de ranking no momento.</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; color:var(--text-muted);">Nenhum participante pontuou ainda.</td></tr>`;
       return;
     }
     const salasRows = await salasRes.json();
@@ -1119,7 +1321,7 @@ async function loadBestPlayersRanking() {
 
     renderLeaderboardRows(tbody, topList);
   } catch (e) {
-    tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; color:var(--text-muted);">Erro ao carregar ranking.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; color:var(--text-muted);">Nenhum participante pontuou ainda.</td></tr>`;
   }
 }
 
@@ -1151,7 +1353,7 @@ async function fetchGlobalBotTestFlag() {
 
 function renderBotTestVisibility() {
   const btnVisitor = document.getElementById("btnOpenBotTest");
-  const isAdmin = !!(teacherProfile && teacherProfile.role === "admin");
+  const isAdmin = isUserAdmin();
 
   if (btnVisitor) {
     btnVisitor.classList.toggle("hidden", !isBotTestEnabledGlobally);
@@ -1160,6 +1362,7 @@ function renderBotTestVisibility() {
   const adminBox = document.getElementById("adminBotControlBox");
   const modBox = document.getElementById("adminModPanelBox");
   const storyBox = document.getElementById("adminStoryCreatorBox");
+  const dangerResetBox = document.getElementById("adminDangerResetBox");
   const toggleBtn = document.getElementById("btnToggleBotTest");
   const statusLbl = document.getElementById("adminBotStatusLabel");
 
@@ -1170,6 +1373,10 @@ function renderBotTestVisibility() {
 
   if (storyBox) {
     storyBox.classList.toggle("hidden", !isAdmin);
+  }
+
+  if (dangerResetBox) {
+    dangerResetBox.classList.toggle("hidden", !isAdmin);
   }
 
   if (adminBox && toggleBtn && statusLbl) {
@@ -1187,7 +1394,7 @@ function renderBotTestVisibility() {
 }
 
 async function toggleBotTestPermission() {
-  if (!teacherAuthSession || !teacherProfile || teacherProfile.role !== "admin") {
+  if (!isUserAdmin()) {
     showToast("⛔ Apenas o administrador da plataforma pode liberar ou bloquear o modo teste.");
     return;
   }
@@ -1329,6 +1536,7 @@ async function loadTeacherSubscriptionProfile() {
 
     renderTeacherAuthUI();
     renderBotTestVisibility();
+    renderRoomHistoryPanel();
     await Promise.all([loadRecentTeacherRooms(), syncCloudModeratorsList()]);
     return true;
   } catch (e) {
@@ -1341,18 +1549,18 @@ async function loadRecentTeacherRooms() {
   const headerTitleEl = document.getElementById("savedRoomsHeaderTitle");
   if (!listEl) return;
 
-  const isAdmin = !!(teacherProfile && teacherProfile.role === "admin");
+  const isAdmin = isUserAdmin();
   const myUserId = teacherAuthSession?.user?.id || teacherProfile?.id || "";
   const myEmail = String(teacherProfile?.email || teacherAuthSession?.user?.email || "").trim().toLowerCase();
 
   if (headerTitleEl) {
     headerTitleEl.textContent = isAdmin
       ? "📂 Todas as Salas Abertas / Recentes (Admin)"
-      : "📂 Minhas Salas Abertas / Recentes";
+      : "📂 Minhas Salas Criadas";
   }
 
   try {
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/salas?select=pin,state,owner_id&limit=30`, {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/salas?select=pin,state,owner_id&limit=50`, {
       cache: "no-store",
       headers: { "apikey": SUPABASE_KEY }
     });
@@ -1369,7 +1577,7 @@ async function loadRecentTeacherRooms() {
         const stateEmailMatch = !!(myEmail && r.state.ownerEmail && String(r.state.ownerEmail).toLowerCase() === myEmail);
         return ownerMatch || stateEmailMatch;
       })
-      .slice(0, 8);
+      .slice(0, 12);
 
     if (validRooms.length === 0) {
       listEl.innerHTML = `<div style="font-size:0.82rem; color:var(--text-muted);">Nenhuma sala criada por você encontrada.</div>`;
@@ -1385,14 +1593,17 @@ async function loadRecentTeacherRooms() {
         ? "🔒 Encerrada"
         : (st.finished ? "Finalizada" : (st.started ? `Fase ${st.stage || 1}` : "Espera"));
 
-      const actionButtons = isClosed
+      const toggleStateBtn = isClosed
         ? `<button type="button" class="btn-success btn-sm" onclick="reopenRoomByPin('${r.pin}', '${label.replace(/'/g, "\\'")}')">🔓 Reabrir</button>`
-        : `
-          <div style="display:flex; gap:6px;">
-            <button type="button" class="btn-primary btn-sm" onclick="reopenExistingRoom('${r.pin}', '${label.replace(/'/g, "\\'")}')">Abrir</button>
-            <button type="button" class="btn-ghost btn-sm" onclick="closeRoomByPin('${r.pin}', '${label.replace(/'/g, "\\'")}')">🔒 Fechar</button>
-          </div>
-        `;
+        : `<button type="button" class="btn-ghost btn-sm" onclick="closeRoomByPin('${r.pin}', '${label.replace(/'/g, "\\'")}')">🔒 Fechar</button>`;
+
+      const actionButtons = `
+        <div style="display:flex; gap:6px; flex-wrap:wrap;">
+          ${!isClosed ? `<button type="button" class="btn-primary btn-sm" onclick="reopenExistingRoom('${r.pin}', '${label.replace(/'/g, "\\'")}')">Abrir</button>` : ""}
+          ${toggleStateBtn}
+          <button type="button" class="btn-danger btn-sm" onclick="deleteRoomByPin('${r.pin}', '${label.replace(/'/g, "\\'")}')">🗑️ Excluir</button>
+        </div>
+      `;
 
       return `
         <div class="saved-room-row">
@@ -1478,6 +1689,7 @@ function logoutTeacher(silent = false) {
   clearSessionState();
   renderTeacherAuthUI();
   renderBotTestVisibility();
+  renderRoomHistoryPanel();
   if (!silent) showToast("Você saiu da conta de professor.");
 }
 
@@ -1831,7 +2043,7 @@ function triggerBotModeMathIfNeeded() {
 }
 
 function startInstantBotMatch() {
-  if (!isBotTestEnabledGlobally && !(teacherProfile && teacherProfile.role === "admin")) {
+  if (!isBotTestEnabledGlobally && !isUserAdmin()) {
     showToast("🔒 O Modo Teste (4 Bots) ainda não foi liberado pelo administrador.");
     return;
   }
@@ -2140,7 +2352,7 @@ async function createTeacherRoom(resumePin = null, resumeLabel = null) {
   let restored = false;
   if (resumePin) {
     const roomLookup = await dbGetRoom(resumePin, true);
-    const existing = roomLookup && roomLookup.exists ? roomLookup.state : null;
+    const existing = (roomLookup && roomLookup.exists ? roomLookup.state : null) || deletedRoomSnapshots[roomPin];
     if (existing && existing.grid) {
       gameState = {
         ...existing,
@@ -2179,7 +2391,7 @@ async function createTeacherRoom(resumePin = null, resumeLabel = null) {
     const result = await dbSaveRoom(roomPin, gameState);
     if (result.ok) {
       setNetStatus("online", "Sala de Espera (" + roomPin + ")");
-      await logRoomHistoryEvent(roomPin, label, "CREATED", true);
+      await logRoomHistoryEvent(roomPin, label, "CREATED", true, gameState);
       await loadRecentTeacherRooms();
       showToast(`Sala ${roomPin} aberta! Aguarde os alunos e aperte "Iniciar Partida Agora".`);
     } else {
@@ -2189,7 +2401,7 @@ async function createTeacherRoom(resumePin = null, resumeLabel = null) {
     }
   } else {
     setNetStatus("online", (gameState.started ? "Torneio Ao Vivo (" : "Sala de Espera (") + roomPin + ")");
-    await logRoomHistoryEvent(roomPin, label, "REOPENED", true);
+    await logRoomHistoryEvent(roomPin, label, "REOPENED", true, gameState);
   }
 
   saveSessionState("teacher", { roomLabel: label });
