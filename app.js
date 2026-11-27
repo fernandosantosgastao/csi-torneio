@@ -223,6 +223,12 @@ function canModerateCurrentRoom() {
   return isUserModerator();
 }
 
+function isRoomDeletedByAdmin(pin) {
+  const cleanPin = String(pin || "").trim().toUpperCase();
+  const histEntry = roomHistoryEntries.find(h => h.pin === cleanPin);
+  return !!(histEntry && histEntry.deleted && histEntry.deletedByAdmin);
+}
+
 function isRoomCreator(roomRowOrState, pin) {
   const myUserId = teacherAuthSession?.user?.id || teacherProfile?.id || "";
   const myEmail = String(teacherProfile?.email || teacherAuthSession?.user?.email || "").trim().toLowerCase();
@@ -237,12 +243,14 @@ function isRoomCreator(roomRowOrState, pin) {
 }
 
 function canUserManageRoom(roomRowOrState, pin) {
+  if (isUserAdmin()) return true;
+  if (isRoomDeletedByAdmin(pin)) return false;
   if (isUserModerator()) return true;
   return isRoomCreator(roomRowOrState, pin);
 }
 
 function canRestoreDeletedRoom(pin) {
-  if (isUserModerator()) return true;
+  if (isUserAdmin()) return true;
   const cleanPin = String(pin || "").trim().toUpperCase();
   const histEntry = roomHistoryEntries.find(h => h.pin === cleanPin);
   if (!histEntry || !histEntry.deleted || histEntry.deletedByAdmin) return false;
@@ -690,7 +698,7 @@ function clearRoomHistoryManually() {
   showToast("🧹 Histórico limpo manualmente.");
 }
 
-async function logRoomHistoryEvent(pin, label, eventType, isOpen, stateSnapshot = null) {
+async function logRoomHistoryEvent(pin, label, eventType, isOpen, stateSnapshot = null, forceAdminDelete = false) {
   const cleanPin = String(pin || "").trim().toUpperCase();
   if (!cleanPin) return;
   const cleanLabel = String(label || `Sala ${cleanPin}`).trim();
@@ -706,7 +714,7 @@ async function logRoomHistoryEvent(pin, label, eventType, isOpen, stateSnapshot 
     : (eventType === "RESTORED" || eventType === "REOPENED" ? false : !!existing?.deleted);
 
   const deletedByAdminFlag = eventType === "DELETED"
-    ? isUserModerator()
+    ? !!(forceAdminDelete || isUserAdmin())
     : (eventType === "RESTORED" || eventType === "REOPENED" ? false : !!existing?.deletedByAdmin);
 
   const deletedAtIso = eventType === "DELETED"
@@ -760,6 +768,7 @@ function renderRoomHistoryPanel() {
   const myEmail = String(teacherProfile?.email || teacherAuthSession?.user?.email || "").trim().toLowerCase();
 
   const visibleHistory = (roomHistoryEntries || []).filter(item => {
+    if (item.deleted && item.deletedByAdmin && !isAdmin) return false;
     if (isAdmin) return true;
     return !!(myEmail && item.teacherEmail && String(item.teacherEmail).toLowerCase() === myEmail);
   });
@@ -803,15 +812,15 @@ function renderDeletedRoomsFolder() {
   if (!boxEl || !listEl) return;
 
   const myEmail = String(teacherProfile?.email || teacherAuthSession?.user?.email || "").trim().toLowerCase();
-  const isMod = isUserModerator();
+  const isAdmin = isUserAdmin();
 
   const deletedItems = (roomHistoryEntries || []).filter(item => {
     if (!item || !item.deleted) return false;
-    if (isMod) return true;
+    if (item.deletedByAdmin) return isAdmin;
     return !!(myEmail && item.teacherEmail && String(item.teacherEmail).toLowerCase() === myEmail);
   });
 
-  boxEl.classList.toggle("hidden", !teacherAuthSession || deletedItems.length === 0 && !isMod);
+  boxEl.classList.toggle("hidden", !teacherAuthSession || (deletedItems.length === 0 && !isAdmin));
   if (!teacherAuthSession) return;
 
   if (deletedItems.length === 0) {
@@ -824,8 +833,8 @@ function renderDeletedRoomsFolder() {
     const canRestore = hasSnap && canRestoreDeletedRoom(item.pin);
     let statusNote = "Excluída";
     if (item.deletedByAdmin) {
-      statusNote = "Excluída pelo Admin • Somente Admin/Moderador pode restaurar";
-    } else if (!isMod) {
+      statusNote = "Excluída pelo Admin • Somente Admin pode restaurar";
+    } else if (!isAdmin) {
       const deletedAtMs = item.deletedAt ? new Date(item.deletedAt).getTime() : 0;
       const within7Days = deletedAtMs && (Date.now() - deletedAtMs) <= TEACHER_RESTORE_WINDOW_MS;
       statusNote = within7Days ? "Excluída por você • Restaurável até 7 dias" : "Excluída por você • Prazo de 7 dias expirado";
@@ -870,12 +879,13 @@ async function deleteRoomByPin(targetPin, targetLabel) {
     return;
   }
 
+  const deletedByAdminAction = isUserAdmin();
   const snapshot = currentState && currentState.grid
-    ? { ...currentState, closed: false, started: false, v: (currentState.v || 1) + 1 }
+    ? { ...currentState, closed: false, started: false, deletedByAdmin: deletedByAdminAction, v: (currentState.v || 1) + 1 }
     : (deletedRoomSnapshots[cleanPin] || null);
 
   if (currentState) {
-    const closedBeforeDelete = { ...currentState, closed: true, started: false, v: (currentState.v || 1) + 1 };
+    const closedBeforeDelete = { ...currentState, closed: true, started: false, deletedByAdmin: deletedByAdminAction, v: (currentState.v || 1) + 1 };
     await dbSaveRoom(cleanPin, closedBeforeDelete, !teacherAuthSession).catch(() => {});
   }
 
@@ -889,10 +899,10 @@ async function deleteRoomByPin(targetPin, targetLabel) {
     resetToLobby();
   }
 
-  await logRoomHistoryEvent(cleanPin, targetLabel || currentState?.roomLabel || `Sala ${cleanPin}`, "DELETED", false, snapshot);
+  await logRoomHistoryEvent(cleanPin, targetLabel || currentState?.roomLabel || `Sala ${cleanPin}`, "DELETED", false, snapshot, deletedByAdminAction);
   await loadRecentTeacherRooms();
-  showToast(isUserModerator()
-    ? `🗑️ Sala ${cleanPin} excluída pelo Admin! Somente privilégios de Admin/Moderador podem restaurar.`
+  showToast(deletedByAdminAction
+    ? `🗑️ Sala ${cleanPin} excluída pelo Admin! Somente o Admin pode acessar ou restaurar.`
     : `🗑️ Sala ${cleanPin} excluída! Você pode restaurá-la em até 7 dias.`
   );
 }
@@ -900,9 +910,8 @@ async function deleteRoomByPin(targetPin, targetLabel) {
 async function restoreDeletedRoomByPin(targetPin, targetLabel) {
   const cleanPin = String(targetPin || "").trim().toUpperCase();
   if (!canRestoreDeletedRoom(cleanPin)) {
-    const histEntry = roomHistoryEntries.find(h => h.pin === cleanPin);
-    if (histEntry && histEntry.deletedByAdmin && !isUserModerator()) {
-      showToast("⛔ Esta sala foi excluída pelo Admin: somente quem tem privilégio de Admin/Moderador pode restaurar.");
+    if (isRoomDeletedByAdmin(cleanPin) && !isUserAdmin()) {
+      showToast("⛔ Esta sala foi excluída pelo Admin: somente o Admin pode reabrir, acessar ou restaurar.");
     } else {
       showToast("⛔ Prazo de 7 dias para restauração expirado ou sem permissão.");
     }
@@ -918,6 +927,7 @@ async function restoreDeletedRoomByPin(targetPin, targetLabel) {
   const restoredState = {
     ...snap,
     closed: false,
+    deletedByAdmin: false,
     v: (snap.v || 1) + 1
   };
 
@@ -927,7 +937,7 @@ async function restoreDeletedRoomByPin(targetPin, targetLabel) {
     return;
   }
 
-  await logRoomHistoryEvent(cleanPin, targetLabel || restoredState.roomLabel || `Sala ${cleanPin}`, "RESTORED", true, restoredState);
+  await logRoomHistoryEvent(cleanPin, targetLabel || restoredState.roomLabel || `Sala ${cleanPin}`, "RESTORED", true, restoredState, false);
   await loadRecentTeacherRooms();
   await createTeacherRoom(cleanPin, targetLabel || restoredState.roomLabel || `Sala ${cleanPin}`);
   showToast(`♻️ Sala ${cleanPin} restaurada com sucesso!`);
@@ -939,11 +949,12 @@ async function adminNukeAllRoomsAndRanking() {
     return;
   }
   const confirmed = window.confirm(
-    "ATENÇÃO ADMIN: Isso vai FECHAR e EXCLUIR TODAS as salas criadas e LIMPAR o ranking. O histórico será mantido até você limpar manualmente. Deseja continuar?"
+    "ATENÇÃO ADMIN: Isso vai FECHAR e EXCLUIR TODAS as salas criadas e LIMPAR o ranking para todos. O histórico será mantido até você limpar manualmente. Deseja continuar?"
   );
   if (!confirmed) return;
 
   const clearedTs = Date.now();
+  const clearedIso = new Date(clearedTs).toISOString();
   setLeaderboardClearedAtMs(clearedTs);
 
   try {
@@ -956,8 +967,9 @@ async function adminNukeAllRoomsAndRanking() {
     for (const r of (Array.isArray(rows) ? rows : [])) {
       if (!r || !r.pin) continue;
       const p = String(r.pin).trim().toUpperCase();
-      const st = r.state || {};
-      await logRoomHistoryEvent(p, st.roomLabel || `Sala ${p}`, "DELETED", false, st);
+      const st = { ...(r.state || {}), leaderboardClearedAt: clearedIso, closed: true, started: false, deletedByAdmin: true };
+      await logRoomHistoryEvent(p, st.roomLabel || `Sala ${p}`, "DELETED", false, st, true);
+      await dbSaveRoom(p, st, false).catch(() => {});
     }
 
     await fetch(`${SUPABASE_URL}/rest/v1/salas?pin=not.is.null`, {
@@ -976,7 +988,7 @@ async function adminNukeAllRoomsAndRanking() {
         ...getAuthHeaders(true),
         "Prefer": "return=minimal"
       },
-      body: JSON.stringify({ leaderboard_cleared_at: new Date(clearedTs).toISOString() })
+      body: JSON.stringify({ leaderboard_cleared_at: clearedIso })
     }).catch(() => {});
   } catch (e) {}
 
@@ -989,7 +1001,7 @@ async function adminNukeAllRoomsAndRanking() {
   await loadBestPlayersRanking();
   await loadRecentTeacherRooms();
   renderDeletedRoomsFolder();
-  showToast("🧨 Todas as salas foram fechadas/excluídas e o ranking foi limpo! Histórico preservado.");
+  showToast("🧨 Todas as salas foram fechadas/excluídas e o ranking foi limpo para todos! Histórico preservado.");
 }
 
 async function closeRoomByPin(targetPin, targetLabel) {
@@ -1020,7 +1032,7 @@ async function closeRoomByPin(targetPin, targetLabel) {
 
   await dbSaveRoom(cleanPin, closedState, !teacherAuthSession);
   broadcastRoomStateNow();
-  await logRoomHistoryEvent(cleanPin, targetLabel || closedState.roomLabel || `Sala ${cleanPin}`, "CLOSED", false, closedState);
+  await logRoomHistoryEvent(cleanPin, targetLabel || closedState.roomLabel || `Sala ${cleanPin}`, "CLOSED", false, closedState, false);
   await loadRecentTeacherRooms();
   showToast(`🔒 Sala ${cleanPin} encerrada! Todos os alunos foram removidos e novas entradas estão bloqueadas.`);
 }
@@ -1029,12 +1041,13 @@ async function reopenRoomByPin(targetPin, targetLabel) {
   const cleanPin = String(targetPin || "").trim().toUpperCase();
   if (!cleanPin) return;
 
+  if (isRoomDeletedByAdmin(cleanPin) && !isUserAdmin()) {
+    showToast("⛔ Esta sala foi excluída pelo Admin: somente o Admin pode reabrir, acessar ou restaurar.");
+    return;
+  }
+
   const histEntry = roomHistoryEntries.find(h => h.pin === cleanPin);
   if (histEntry && histEntry.deleted) {
-    if (!canRestoreDeletedRoom(cleanPin)) {
-      showToast("⛔ Sala excluída pelo Admin: somente quem tem privilégio de Admin/Moderador pode restaurar.");
-      return;
-    }
     await restoreDeletedRoomByPin(cleanPin, targetLabel);
     return;
   }
@@ -1061,7 +1074,7 @@ async function reopenRoomByPin(targetPin, targetLabel) {
   };
 
   await dbSaveRoom(cleanPin, reopenedState, !teacherAuthSession);
-  await logRoomHistoryEvent(cleanPin, targetLabel || reopenedState.roomLabel || `Sala ${cleanPin}`, "REOPENED", true, reopenedState);
+  await logRoomHistoryEvent(cleanPin, targetLabel || reopenedState.roomLabel || `Sala ${cleanPin}`, "REOPENED", true, reopenedState, false);
   await loadRecentTeacherRooms();
 
   if (teacherAuthSession && isSubscriptionValid(teacherProfile)) {
@@ -1423,6 +1436,22 @@ async function loadBestPlayersRanking() {
       }
     } catch (e) {}
 
+    const salasRes = await fetch(`${SUPABASE_URL}/rest/v1/salas?select=state,updated_at&limit=30`, {
+      cache: "no-store",
+      headers: { "apikey": SUPABASE_KEY }
+    });
+    const salasRows = salasRes.ok ? await salasRes.json() : [];
+
+    if (Array.isArray(salasRows)) {
+      salasRows.forEach(row => {
+        const stCleared = row?.state?.leaderboardClearedAt ? new Date(row.state.leaderboardClearedAt).getTime() : 0;
+        if (Number.isFinite(stCleared) && stCleared > clearedMs) {
+          clearedMs = stCleared;
+          setLeaderboardClearedAtMs(stCleared);
+        }
+      });
+    }
+
     const lbRes = await fetch(
       `${SUPABASE_URL}/rest/v1/global_leaderboard?select=*&order=pontos_totais.desc&limit=10`,
       { cache: "no-store", headers: { "apikey": SUPABASE_KEY } }
@@ -1445,17 +1474,7 @@ async function loadBestPlayersRanking() {
       }
     }
 
-    const salasRes = await fetch(`${SUPABASE_URL}/rest/v1/salas?select=state,updated_at&limit=30`, {
-      cache: "no-store",
-      headers: { "apikey": SUPABASE_KEY }
-    });
-    if (!salasRes.ok) {
-      renderLeaderboardRows(tbody, []);
-      return;
-    }
-    const salasRows = await salasRes.json();
     const aggregated = {};
-
     salasRows.forEach(row => {
       const updatedMs = row?.updated_at ? new Date(row.updated_at).getTime() : 0;
       if (clearedMs && (!updatedMs || updatedMs <= clearedMs)) return;
@@ -1740,8 +1759,10 @@ async function loadRecentTeacherRooms() {
     const validRooms = rows
       .filter(r => {
         if (!r || !r.pin || !r.state || !r.state.grid) return false;
-        const histEntry = roomHistoryEntries.find(h => h.pin === String(r.pin).trim().toUpperCase());
+        const cleanPin = String(r.pin).trim().toUpperCase();
+        const histEntry = roomHistoryEntries.find(h => h.pin === cleanPin);
         if (histEntry && histEntry.deleted) return false;
+        if (r.state.deletedByAdmin && !isAdmin) return false;
         if (isAdmin) return true;
         const ownerMatch = !!(myUserId && r.owner_id === myUserId);
         const stateEmailMatch = !!(myEmail && r.state.ownerEmail && String(r.state.ownerEmail).toLowerCase() === myEmail);
@@ -2515,23 +2536,26 @@ async function createTeacherRoom(resumePin = null, resumeLabel = null) {
 
   let restored = false;
   if (resumePin) {
-    const histEntry = roomHistoryEntries.find(h => h.pin === String(resumePin).trim().toUpperCase());
-    if (histEntry && histEntry.deleted && !canRestoreDeletedRoom(resumePin)) {
-      showToast("⛔ Esta sala foi excluída pelo Admin e não pode ser aberta por você.");
-      return;
+    const cleanTargetPin = String(resumePin).trim().toUpperCase();
+    const roomLookup = await dbGetRoom(cleanTargetPin, true);
+    if (isRoomDeletedByAdmin(cleanTargetPin) || roomLookup?.state?.deletedByAdmin) {
+      if (!isUserAdmin()) {
+        showToast("⛔ Esta sala foi excluída pelo Admin: somente o Admin pode acessar ou restaurar.");
+        return;
+      }
     }
-    const roomLookup = await dbGetRoom(resumePin, true);
-    const existing = (roomLookup && roomLookup.exists ? roomLookup.state : null) || deletedRoomSnapshots[resumePin];
+    const existing = (roomLookup && roomLookup.exists ? roomLookup.state : null) || deletedRoomSnapshots[cleanTargetPin];
     if (existing && existing.grid) {
       gameState = {
         ...existing,
         closed: false,
+        deletedByAdmin: false,
         ownerEmail: existing.ownerEmail || ownerEmail,
         moderators: Array.isArray(existing.moderators) ? existing.moderators : [...moderatorsList]
       };
       restored = true;
-      await dbSaveRoom(roomPin, gameState, false);
-      showToast(`🔄 Painel da sala ${roomPin} restaurado com sucesso!`);
+      await dbSaveRoom(cleanTargetPin, gameState, false);
+      showToast(`🔄 Painel da sala ${cleanTargetPin} restaurado com sucesso!`);
     }
   }
 
@@ -2567,7 +2591,7 @@ async function createTeacherRoom(resumePin = null, resumeLabel = null) {
     const result = await dbSaveRoom(roomPin, gameState);
     if (result.ok) {
       setNetStatus("online", "Sala de Espera (" + roomPin + ")");
-      await logRoomHistoryEvent(roomPin, label, "CREATED", true, gameState);
+      await logRoomHistoryEvent(roomPin, label, "CREATED", true, gameState, false);
       await loadRecentTeacherRooms();
       showToast(`Sala ${roomPin} aberta! Aguarde os alunos e aperte "Iniciar Partida Agora".`);
     } else {
@@ -2577,7 +2601,7 @@ async function createTeacherRoom(resumePin = null, resumeLabel = null) {
     }
   } else {
     setNetStatus("online", (gameState.started ? "Torneio Ao Vivo (" : "Sala de Espera (") + roomPin + ")");
-    await logRoomHistoryEvent(roomPin, label, "REOPENED", true, gameState);
+    await logRoomHistoryEvent(roomPin, label, "REOPENED", true, gameState, false);
   }
 
   saveSessionState("teacher", { roomLabel: label });
@@ -3002,9 +3026,9 @@ async function joinAsStudent(savedSession = null) {
 
   const remoteInitial = roomLookup.exists ? roomLookup.state : null;
   if (remoteInitial && remoteInitial.grid) {
-    if (remoteInitial.closed) {
+    if (remoteInitial.closed || remoteInitial.deletedByAdmin) {
       clearSessionState();
-      showToast(`🔒 A sala ${roomPin} foi encerrada pelo professor e não aceita novas entradas no momento.`);
+      showToast(`🔒 A sala ${roomPin} foi encerrada ou excluída pelo administrador.`);
       return;
     }
 
@@ -3925,7 +3949,7 @@ async function bootApp() {
 
     const roomLookup = await dbGetRoom(session.pin, true);
     const remote = roomLookup && roomLookup.exists ? roomLookup.state : null;
-    if (!remote || !remote.grid || remote.closed) {
+    if (!remote || !remote.grid || remote.closed || remote.deletedByAdmin) {
       clearSessionState();
       return;
     }
