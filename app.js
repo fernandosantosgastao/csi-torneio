@@ -673,6 +673,12 @@ function renderDeletedRoomsFolder() {
 function renderBotTestVisibility() {
   const btnVisitor = document.getElementById("btnOpenBotTest");
   const isAdmin = isUserAdmin();
+  const canAccessAdminPage = isAdmin || isUserModerator();
+
+  const adminNavBox = document.getElementById("adminExclusiveNavBox");
+  if (adminNavBox) {
+    adminNavBox.classList.toggle("hidden", !canAccessAdminPage);
+  }
 
   if (btnVisitor) {
     btnVisitor.classList.toggle("hidden", !isBotTestEnabledGlobally);
@@ -1332,6 +1338,7 @@ async function addModeratorEmail() {
   moderatorsList = saveModeratorsList([...moderatorsList, email]);
   input.value = "";
   renderModeratorsUI();
+  renderBotTestVisibility();
 
   if (teacherAuthSession && teacherAuthSession.access_token) {
     await fetch(`${SUPABASE_URL}/rest/v1/moderators`, {
@@ -1359,6 +1366,7 @@ async function removeModeratorEmail(email) {
   if (!isUserAdmin()) return;
   moderatorsList = saveModeratorsList(moderatorsList.filter(e => e !== email));
   renderModeratorsUI();
+  renderBotTestVisibility();
 
   if (teacherAuthSession && teacherAuthSession.access_token) {
     await fetch(`${SUPABASE_URL}/rest/v1/moderators?email=eq.${encodeURIComponent(email)}`, {
