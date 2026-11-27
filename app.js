@@ -1195,17 +1195,38 @@ function stopMatchMathTimerLoop() {
   }
 }
 
+function syncCountdownBannerVisibility() {
+  const studentBanner = document.getElementById("mathCountdownBanner");
+  if (studentBanner) {
+    const showStudent = gameState.started && !gameState.finished;
+    studentBanner.classList.toggle("hidden", !showStudent);
+  }
+  const botBanner = document.getElementById("botMathCountdownBanner");
+  if (botBanner) {
+    botBanner.classList.toggle("hidden", !isBotModeActive);
+  }
+}
+
 function refreshMathCountdownBadge() {
+  syncCountdownBannerVisibility();
+  const formatted = formatRemainingToNextMathMMSS();
+  const clockEl = isBotModeActive
+    ? document.getElementById("botMathCountdownClock")
+    : document.getElementById("mathCountdownClock");
+  if (clockEl) {
+    clockEl.textContent = formatted;
+  }
+
   if (isBotModeActive) {
     const el = document.getElementById("botMathGateIndicator");
     if (el && !isRecompLocked && !isStageTransitionMath && !isMathLocked) {
-      el.textContent = `🧮 Próx. Mat. em ${formatRemainingToNextMathMMSS()}`;
+      el.textContent = `⏱️ Questão de Matemática em ${formatted}`;
     }
     return;
   }
   const el = document.getElementById("mathGateIndicator");
   if (el && gameState.started && !isRecompLocked && !isStageTransitionMath && !isMathLocked) {
-    el.textContent = `🧮 Próx. Mat. em ${formatRemainingToNextMathMMSS()}`;
+    el.textContent = `⏱️ Questão de Matemática em ${formatted}`;
   }
 }
 
@@ -1239,6 +1260,7 @@ function resetToLobby() {
   matchStartedAtMs = 0;
   lastTimedMathSlot = 0;
   playerStreak = 0;
+  syncCountdownBannerVisibility();
   document.body.classList.remove("pseudo-fullscreen");
   document.body.classList.remove("focus-wordsearch-mode");
   const fab = document.getElementById("btnExitFocusFab");
@@ -2538,11 +2560,12 @@ function renderBotTestUI(forceRebuild = false) {
 
   const foundCount = Object.keys(botClaimedWords).length;
   document.getElementById("botRemaining").textContent = Math.max(0, botStory.words.length - foundCount);
+  syncCountdownBannerVisibility();
   document.getElementById("botMathGateIndicator").textContent = isRecompLocked
     ? "🛠️ Em Recomposição!"
     : (isStageTransitionMath
       ? `🧮 Troca de Fase (${stageMathTotalQuestions - stageMathRemainingQuestions + 1}/${stageMathTotalQuestions})`
-      : (isMathLocked ? "🔒 Desafio Matemático!" : `🧮 Próx. Mat. em ${formatRemainingToNextMathMMSS()}`));
+      : (isMathLocked ? "🔒 Desafio Matemático!" : `⏱️ Questão de Matemática em ${formatRemainingToNextMathMMSS()}`));
 
   const botsSorted = botPlayers.filter(p => !p.isHuman).sort((a, b) => b.score - a.score);
   const topBotScore = botsSorted.length > 0 ? botsSorted[0].score : 0;
@@ -3235,6 +3258,7 @@ function reconcileRemoteStudentRoomState(remote) {
     isRecompLocked = false;
     isStageTransitionMath = false;
     stageMathRemainingQuestions = 0;
+    syncCountdownBannerVisibility();
     document.getElementById("mathModal").classList.add("hidden");
     document.getElementById("recompositionModal").classList.add("hidden");
     if (!victoryModalDismissedForMatch) {
@@ -3402,6 +3426,7 @@ async function joinAsStudent(savedSession = null) {
 function updateStudentScreenState() {
   const waitingBox = document.getElementById("studentWaitingLobby");
   const gameArea = document.getElementById("studentGameArea");
+  syncCountdownBannerVisibility();
 
   if (!gameState.started) {
     waitingBox.classList.remove("hidden");
@@ -3444,12 +3469,13 @@ function renderStudentGame(forceRebuildGrid = false) {
   document.getElementById("studentScore").textContent = displayScore;
 
   const totalClaimedInRoom = Object.keys(gameState.claimedWords).length;
+  syncCountdownBannerVisibility();
   document.getElementById("mathGateIndicator").textContent =
     isRecompLocked
       ? "🛠️ Em Recomposição!"
       : (isStageTransitionMath
         ? `🧮 Troca de Fase (${stageMathTotalQuestions - stageMathRemainingQuestions + 1}/${stageMathTotalQuestions})`
-        : (isMathLocked ? "🔒 Desafio Matemático!" : `🧮 Próx. Mat. em ${formatRemainingToNextMathMMSS()}`));
+        : (isMathLocked ? "🔒 Desafio Matemático!" : `⏱️ Questão de Matemática em ${formatRemainingToNextMathMMSS()}`));
 
   document.getElementById("studentRemaining").textContent = Math.max(0, story.words.length - totalClaimedInRoom);
 
