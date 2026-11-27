@@ -249,6 +249,39 @@
 <script>
   const SUPABASE_URL = "https://" + "tznqkmhqyyklpaluglqn" + ".supabase.co";
   const SUPABASE_KEY = "sb_publishable_XvY-BRmqI19BNPevoPUMLQ_UZoGHnam";
+
+  function openRoleGateway() {
+    const gateway = document.getElementById("roleGatewayBox");
+    const studentWrap = document.getElementById("studentPortalWrapper");
+    const teacherWrap = document.getElementById("teacherPortalWrapper");
+    if (gateway) gateway.classList.remove("hidden");
+    if (studentWrap) studentWrap.classList.add("hidden");
+    if (teacherWrap) teacherWrap.classList.add("hidden");
+  }
+
+  function selectLobbyRole(role) {
+    const gateway = document.getElementById("roleGatewayBox");
+    const studentWrap = document.getElementById("studentPortalWrapper");
+    const teacherWrap = document.getElementById("teacherPortalWrapper");
+    if (gateway) gateway.classList.add("hidden");
+
+    if (role === "student") {
+      if (studentWrap) studentWrap.classList.remove("hidden");
+      if (teacherWrap) teacherWrap.classList.add("hidden");
+      const pinInput = document.getElementById("inputPin");
+      if (pinInput) pinInput.focus();
+    } else if (role === "teacher") {
+      if (teacherWrap) teacherWrap.classList.remove("hidden");
+      if (studentWrap) studentWrap.classList.add("hidden");
+      const emailInput = document.getElementById("authEmail");
+      if (emailInput && !emailInput.closest("#teacherAuthBox")?.classList.contains("hidden")) {
+        emailInput.focus();
+      }
+    }
+  }
+
+  window.openRoleGateway = openRoleGateway;
+  window.selectLobbyRole = selectLobbyRole;
 </script>
 
 <button type="button" id="btnExitFocusFab" class="exit-focus-fab hidden" onclick="toggleFullscreen()">✕ Sair da Tela Cheia</button>
@@ -397,10 +430,11 @@
 
           <div id="adminDangerResetBox" class="admin-story-box hidden" style="border-color: rgba(244, 63, 94, 0.55); background: rgba(244, 63, 94, 0.08);">
             <strong style="color:#fda4af; font-size:0.9rem; display:block; margin-bottom:6px;">🧨 Controle Master Admin: Reset Geral &amp; Restauração</strong>
-            <div style="font-size:0.78rem; color:var(--text-muted); margin-bottom:10px;">Fecha todas as salas, exclui todas as salas criadas e limpa o ranking. O histórico permanece salvo até você limpar.</div>
+            <div style="font-size:0.78rem; color:var(--text-muted); margin-bottom:10px;">Fecha todas as salas, exclui todas as salas criadas e limpa o ranking para todos. O histórico permanece salvo até você limpar.</div>
             <div style="display:flex; gap:8px; flex-wrap:wrap;">
               <button type="button" class="btn-danger btn-sm" id="btnAdminNukeAll" onclick="adminNukeAllRoomsAndRanking()">🧨 Fechar, Limpar Ranking e Excluir Todas as Salas</button>
-              <button type="button" class="btn-ghost btn-sm" id="btnClearRoomHistory" onclick="clearRoomHistoryManually()">🧹 Limpar Histórico</button>
+              <button type="button" class="btn-ghost btn-sm" id="btnAdminClearRankingOnly" onclick="adminClearGlobalRankingOnly()">🧹 Limpar Ranking (Todos)</button>
+              <button type="button" class="btn-ghost btn-sm" id="btnClearRoomHistory" onclick="clearRoomHistoryManually()">🗑️ Limpar Histórico</button>
             </div>
           </div>
 
@@ -616,7 +650,7 @@
         <span id="botTestStoryLabel" style="color:var(--text-muted); font-size:0.86rem; margin-left:8px;"></span>
       </div>
       <div style="display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
-        <div class="math-meter" id="botMathGateIndicator">🧮 Portal: 0/2 palavras</div>
+        <div class="math-meter" id="botMathGateIndicator">🧮 Portal: 0/5 palavras</div>
         <div>Seus Pontos: <strong id="botHumanScore" style="color:var(--gold); font-size:1.2rem;">0</strong></div>
         <div>Restantes: <strong id="botRemaining" style="color:var(--success); font-size:1.1rem;">16</strong></div>
         <button type="button" class="btn-gold btn-sm" onclick="startInstantBotMatch()">🔄 Novo Conto</button>
@@ -670,14 +704,14 @@
     </div>
     <h2 style="margin:8px 0 6px 0; color:#f3e8ff;">Resolva para liberar o tabuleiro!</h2>
     <div id="mathAttemptsBadge" class="attempts-pill">Tentativas restantes: 3 de 3</div>
-    <p style="font-size:0.86rem; color:#cbd5e1; margin-bottom:10px;" id="mathTriggerReason">A rodada alcançou mais 2 palavras! Se errar, uma nova conta será gerada (máximo 3 erros):</p>
+    <p style="font-size:0.86rem; color:#cbd5e1; margin-bottom:10px;" id="mathTriggerReason">A rodada alcançou mais 5 palavras! Se errar, uma nova conta será gerada (máximo 3 erros):</p>
     <div id="mathQuestionBox" style="background:var(--bg-panel); padding:14px; border-radius:12px; font-size:1.05rem; line-height:1.5; margin-bottom:12px; border-left:4px solid var(--purple); color:#fff; font-weight:700;"></div>
     <div id="mathHint" class="hidden" style="margin-top:8px; padding:10px; background:rgba(244, 63, 94, 0.16); border:1px solid var(--danger); border-radius:8px; font-size:0.85rem; color:#fda4af;"></div>
     <div class="math-options" id="mathOptionsContainer"></div>
   </div>
 </div>
 
-<!-- MODAL 2B: RECOMPOSIÇÃO (2 MIN OU 3 CONTAS; 3 ERROS = ELIMINAÇÃO) -->
+<!-- MODAL 2B: RECOMPOSIÇÃO (1 MIN OU 3 CONTAS; 3 ERROS = ELIMINAÇÃO) -->
 <div id="recompositionModal" class="modal-backdrop hidden">
   <div class="modal-card repechage-lock">
     <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -685,17 +719,17 @@
       <span id="recompModeBadge" style="background:var(--gold); color:#0f172a; font-size:0.75rem; font-weight:900; padding:3px 10px; border-radius:999px;">3 ERROS ATINGIDOS</span>
     </div>
     <h2 style="margin:8px 0 6px 0; color:#fef3c7;">Você atingiu o limite de 3 erros!</h2>
-    <p style="font-size:0.86rem; color:#cbd5e1; margin-bottom:10px;">Espere <strong>2 minutos</strong> ou acerte <strong>3 contas</strong> para voltar (errar 3 vezes nas contas elimina você):</p>
+    <p style="font-size:0.86rem; color:#cbd5e1; margin-bottom:10px;">Espere <strong>1 minuto</strong> ou acerte <strong>3 contas</strong> para voltar (errar 3 vezes nas contas elimina você):</p>
 
     <div class="recomp-choice-grid" id="recompChoiceButtons">
-      <button type="button" class="btn-ghost btn-sm" id="btnChooseTimer" onclick="activateRecompTimer()">⏳ Esperar 2 minutos</button>
+      <button type="button" class="btn-ghost btn-sm" id="btnChooseTimer" onclick="activateRecompTimer()">⏳ Esperar 1 minuto</button>
       <button type="button" class="btn-gold btn-sm" id="btnChooseMath3" onclick="activateRecompMath3()">🧮 Resolver 3 contas</button>
     </div>
 
     <div id="recompTimerArea" class="recomp-countdown-box">
       <div style="font-size:0.84rem; color:#cbd5e1;">Contagem regressiva de recomposição:</div>
-      <div class="recomp-timer-num" id="recompTimerDisplay">02:00</div>
-      <div style="font-size:0.78rem; color:var(--text-muted);">Aguarde os 2 minutos ou clique em "Resolver 3 contas" para voltar imediatamente.</div>
+      <div class="recomp-timer-num" id="recompTimerDisplay">01:00</div>
+      <div style="font-size:0.78rem; color:var(--text-muted);">Aguarde 1 minuto ou clique em "Resolver 3 contas" para voltar imediatamente.</div>
     </div>
 
     <div id="recompMathArea" class="hidden" style="margin-top:10px;">
@@ -727,10 +761,11 @@
     <div style="font-size:3rem; margin-bottom:8px;">🚫</div>
     <h2 style="justify-content:center; color:var(--danger); font-size:1.45rem;">Você foi Eliminado da Partida!</h2>
     <p id="elimReasonText" style="margin:10px 0 16px 0; color:#cbd5e1; font-size:0.95rem;">Você excedeu o limite de erros e não poderá retornar nesta rodada.</p>
-    <div style="background:var(--bg-panel); border:1px solid var(--border); border-radius:12px; padding:14px; margin-bottom:14px;">
+    <div style="background:var(--bg-panel); border:1px solid var(--border); border-radius:12px; padding:14px; margin-bottom:16px;">
       <div><strong>Sua Pontuação Acumulada:</strong> <span id="elimScore" style="color:var(--gold); font-weight:900;">0 pts</span></div>
-      <div style="font-size:0.84rem; color:var(--text-muted); margin-top:4px;">Acompanhe a final na lousa até o professor iniciar um novo torneio.</div>
+      <div style="font-size:0.84rem; color:var(--text-muted); margin-top:4px;">Você pode sair agora para entrar em outra sala ou aguardar o professor.</div>
     </div>
+    <button type="button" class="btn-primary" id="btnExitEliminatedRoom" style="width:100%;" onclick="exitEliminatedToStudentPortal()">🚪 Sair da Sala / Entrar em Outra Sala</button>
   </div>
 </div>
 
