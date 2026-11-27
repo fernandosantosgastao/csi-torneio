@@ -14,6 +14,7 @@ const CLASS_COLORS = {
 const GRAMMAR_CLASSES = Object.keys(CLASS_COLORS);
 const GRID_SIZE = 14;
 const MATH_INTERVAL_MS = 120000;
+const PENALTY_DEFAULT_MS = 60000;
 const RESTORE_WINDOW_DAYS = 30;
 const RESTORE_WINDOW_MS = RESTORE_WINDOW_DAYS * 24 * 60 * 60 * 1000;
 
@@ -156,6 +157,16 @@ function toast(msg) {
   setTimeout(() => el.remove(), 3500);
 }
 
+function toggleMobileNavDrawer(forceClose = false) {
+  const nav = document.getElementById("mainNavPills");
+  if (!nav) return;
+  if (forceClose) {
+    nav.classList.remove("mobile-open");
+  } else {
+    nav.classList.toggle("mobile-open");
+  }
+}
+
 function syncFullscreenButtonLabel() {
   const btn = document.getElementById("btnFullscreenToggle");
   if (!btn) return;
@@ -290,6 +301,49 @@ function isWithin30Days(deletedAtIso) {
   return (Date.now() - ts) <= RESTORE_WINDOW_MS;
 }
 
+function getCurrentPlayerRecord() {
+  if (!activeRoomState || !activePlayerNick) return null;
+  const pk = makePlayerKey(activePlayerNick, activePlayerClass);
+  return activeRoomState.players?.[pk] || null;
+}
+
+function isCurrentPlayerEliminated() {
+  const me = getCurrentPlayerRecord();
+  if (!me || !me.eliminated) return false;
+  if (me.penaltyUntilMs && Date.now() >= me.penaltyUntilMs) {
+    me.eliminated = false;
+    me.penaltyUntilMs = 0;
+    return false;
+  }
+  return true;
+}
+
+function syncEliminationPenaltyUi() {
+  const banner = document.getElementById("arenaElimPenaltyBanner");
+  const playable = document.getElementById("arenaPlayableContent");
+  const clockEl = document.getElementById("arenaElimClock");
+  const descEl = document.getElementById("arenaElimPenaltyDesc");
+
+  const me = getCurrentPlayerRecord();
+  const elim = isCurrentPlayerEliminated();
+
+  if (elim && me) {
+    banner?.classList.remove("hidden");
+    playable?.classList.add("arena-locked-overlay");
+    const leftMs = Math.max(0, Number(me.penaltyUntilMs || 0) - Date.now());
+    const sec = Math.ceil(leftMs / 1000);
+    const mm = String(Math.floor(sec / 60)).padStart(2, "0");
+    const ss = String(sec % 60).padStart(2, "0");
+    if (clockEl) clockEl.textContent = `${mm}:${ss}`;
+    if (descEl) {
+      descEl.textContent = `Tempo de espera/castigo restante para recomposição: ${mm}:${ss}. Aguarde ou peça recomposição.`;
+    }
+  } else {
+    banner?.classList.add("hidden");
+    playable?.classList.remove("arena-locked-overlay");
+  }
+}
+
 function updateNavVisibility() {
   const canCtrl = canAccessControlPanel();
   document.getElementById("navControlPanelBtn")?.classList.toggle("hidden", !canCtrl);
@@ -313,6 +367,7 @@ function readInitialRoute() {
 }
 
 function showRouteSection(route) {
+  toggleMobileNavDrawer(true);
   document.body.classList.toggle("login-gate-active", route === "/login");
   document.querySelectorAll(".route-view").forEach(sec => sec.classList.add("hidden"));
   document.getElementById("navLoginBtn")?.classList.toggle("active", route === "/login");
@@ -534,12 +589,14 @@ function ensurePlayerEntry(pk, name, cls) {
       score: 0,
       words: [],
       mathSolved: 0,
-      eliminated: false
+      eliminated: false,
+      penaltyUntilMs: 0
     };
   }
   const p = activeRoomState.players[pk];
   if (!p.key) p.key = pk;
   if (p.stageScore === undefined) p.stageScore = Number(p.score || 0);
+  if (p.penaltyUntilMs === undefined) p.penaltyUntilMs = 0;
   return p;
 }
 
@@ -764,10 +821,17 @@ function applyEventToLocalRoom(ev) {
     }
   } else if (ev.event_type === "ADMIN_REVIVE_PLAYER") {
     const targetKey = ev.target_player_key || pk;
-    if (activeRoomState.players[targetKey]) activeRoomState.players[targetKey].eliminated = false;
+    if (activeRoomState.players[targetKey]) {
+      activeRoomState.players[targetKey].eliminated = false;
+      activeRoomState.players[targetKey].penaltyUntilMs = 0;
+    }
   } else if (ev.event_type === "ADMIN_ELIMINATE_PLAYER") {
     const targetKey = ev.target_player_key || pk;
-    if (activeRoomState.players[targetKey]) activeRoomState.players[targetKey].eliminated = true;
+    if (activeRoomState.players[targetKey]) {
+      const penaltyMs = Number(ev.bonus_points || PENALTY_DEFAULT_MS);
+      activeRoomState.players[targetKey].eliminated = true;
+      activeRoomState.players[targetKey].penaltyUntilMs = Date.now() + penaltyMs;
+    }
   } else if (ev.event_type === "ADMIN_END_MATCH") {
     activeRoomState.started = false;
     activeRoomState.ended = true;
@@ -783,6 +847,7 @@ function applyEventToLocalRoom(ev) {
       p.words = [];
       p.mathSolved = 0;
       p.eliminated = false;
+      p.penaltyUntilMs = 0;
     });
   } else if (ev.event_type === "ADMIN_TOGGLE_ROOM") {
     activeRoomState.closed = !activeRoomState.closed;
@@ -796,6 +861,7 @@ function scheduleArenaUiUpdate() {
     renderArenaBoard(false);
     renderTeacherConsole();
     renderAdminRoomInspector();
+    syncEliminationPenaltyUi();
   }, 150);
 }
 
@@ -872,6 +938,7 @@ async function publishRoomEvent(payload) {
 
 function renderArenaBoard(rebuildGrid = false) {
   if (!activeRoomState) return;
+  syncEliminationPenaltyUi();
   const story = STORIES[(activeRoomState.storyIdx || 0) % STORIES.length];
   document.getElementById("arenaStoryTitle").textContent = `📜 ${story.title}`;
   document.getElementById("arenaStoryBox").innerHTML = story.html;
@@ -949,6 +1016,7 @@ function startTwoMinMathLoop() {
   if (twoMinTimerInterval) clearInterval(twoMinTimerInterval);
   resetTwoMinClock();
   twoMinTimerInterval = setInterval(() => {
+    syncEliminationPenaltyUi();
     const leftSec = Math.max(0, Math.ceil((nextMathAtMs - Date.now()) / 1000));
     const mm = String(Math.floor(leftSec / 60)).padStart(2, "0");
     const ss = String(leftSec % 60).padStart(2, "0");
@@ -960,7 +1028,9 @@ function startTwoMinMathLoop() {
 
     if (Date.now() >= nextMathAtMs) {
       resetTwoMinClock();
-      openTwoMinMathModal();
+      if (!isCurrentPlayerEliminated()) {
+        openTwoMinMathModal();
+      }
     }
   }, 1000);
 }
@@ -1009,6 +1079,7 @@ function generateMathProblem() {
 }
 
 function openTwoMinMathModal() {
+  if (isCurrentPlayerEliminated()) return;
   currentMathTask = generateMathProblem();
   document.getElementById("twoMinMathOp").textContent = currentMathTask.op;
   document.getElementById("twoMinMathQuestion").textContent = currentMathTask.question;
@@ -1027,6 +1098,10 @@ function openTwoMinMathModal() {
 
 async function resolveTwoMinMath(choice) {
   if (!currentMathTask) return;
+  if (isCurrentPlayerEliminated()) {
+    document.getElementById("twoMinMathModal")?.classList.add("hidden");
+    return;
+  }
   if (String(choice) === currentMathTask.correct) {
     document.getElementById("twoMinMathModal")?.classList.add("hidden");
     currentMathTask = null;
@@ -1052,6 +1127,7 @@ function attachArenaPointerSelection() {
   if (!gridEl) return;
 
   gridEl.addEventListener("pointerdown", (e) => {
+    if (isCurrentPlayerEliminated()) return;
     e.preventDefault();
     const cell = e.target.closest(".cell");
     if (!cell || !activeRoomState) return;
@@ -1061,7 +1137,7 @@ function attachArenaPointerSelection() {
   });
 
   gridEl.addEventListener("pointermove", (e) => {
-    if (!isPointerDragging || !dragStartCoord) return;
+    if (!isPointerDragging || !dragStartCoord || isCurrentPlayerEliminated()) return;
     e.preventDefault();
     const target = document.elementFromPoint(e.clientX, e.clientY)?.closest(".cell");
     if (target) highlightLine(gridEl, { r: Number(target.dataset.r), c: Number(target.dataset.c) });
@@ -1070,7 +1146,9 @@ function attachArenaPointerSelection() {
   window.addEventListener("pointerup", () => {
     if (!isPointerDragging) return;
     isPointerDragging = false;
-    evaluateArenaWordSelection();
+    if (!isCurrentPlayerEliminated()) {
+      evaluateArenaWordSelection();
+    }
     document.querySelectorAll("#arenaWsGrid .cell.selected").forEach(c => c.classList.remove("selected"));
   });
 }
@@ -1098,7 +1176,7 @@ function highlightLine(gridEl, endCoord) {
 }
 
 function evaluateArenaWordSelection() {
-  if (!selectedCoords.length || !activeRoomState) return;
+  if (isCurrentPlayerEliminated() || !selectedCoords.length || !activeRoomState) return;
   const wordStr = selectedCoords.map(p => activeRoomState.grid[p.r][p.c]).join("");
   const revStr = wordStr.split("").reverse().join("");
   const story = STORIES[(activeRoomState.storyIdx || 0) % STORIES.length];
@@ -1112,6 +1190,7 @@ function evaluateArenaWordSelection() {
 }
 
 function openGrammarQuiz(item) {
+  if (isCurrentPlayerEliminated()) return;
   activeQuizItem = item;
   quizWrongSet = new Set();
   quizTries = 0;
@@ -1145,6 +1224,10 @@ function renderGrammarChoiceButtons() {
 
 async function checkGrammarChoice(cls) {
   if (!activeQuizItem) return;
+  if (isCurrentPlayerEliminated()) {
+    closeGrammarQuizModal();
+    return;
+  }
   if (cls === activeQuizItem.cls) {
     const pts = quizTries === 0 ? 100 : 70;
     const word = activeQuizItem.word;
@@ -1632,19 +1715,21 @@ async function adminRevivePlayer(playerKey) {
   toast(`${pl.name} recolocado na disputa!`);
 }
 
-async function adminEliminatePlayer(playerKey) {
+async function adminEliminatePlayer(playerKey, penaltyMinutes = 1) {
   if (!(await assertRoomActionAllowed())) return;
   const pl = activeRoomState.players?.[playerKey];
   if (!pl) return;
+  const penaltyMs = Math.max(1, Number(penaltyMinutes || 1)) * 60000;
   await publishRoomEvent({
     room_pin: activeRoomPin,
     event_type: "ADMIN_ELIMINATE_PLAYER",
     player_key: playerKey,
     target_player_key: playerKey,
     player_name: pl.name,
-    player_class: pl.cls || "Geral"
+    player_class: pl.cls || "Geral",
+    bonus_points: penaltyMs
   });
-  toast(`${pl.name} marcado como eliminado.`);
+  toast(`${pl.name} eliminado por ${penaltyMinutes} min de castigo.`);
 }
 
 function exportRoomCsv() {
@@ -1688,33 +1773,40 @@ function buildPodiumCardsHtml(entries) {
 }
 
 function buildModerationRowsHtml(entries) {
-  return entries.slice(0, 80).map((p, idx) => `
-    <tr>
-      <td><strong>#${idx + 1}</strong></td>
-      <td>
-        <strong>${p.name}</strong>
-        <div style="font-size:0.74rem; color:var(--text-muted);">(${p.cls || "Geral"})</div>
-      </td>
-      <td>
-        ${p.eliminated
-          ? '<span class="status-pill-elim">Eliminado</span>'
-          : '<span class="status-pill-active">Na Disputa</span>'}
-      </td>
-      <td>${p.stageScore ?? p.score ?? 0}</td>
-      <td style="color:var(--gold); font-weight:900;">${p.score || 0}</td>
-      <td>${Array.isArray(p.words) ? p.words.length : 0}</td>
-      <td>${p.mathSolved || 0}</td>
-      <td>
-        <div class="mod-btn-group">
-          <div class="mod-btn-row">
-            <button type="button" class="btn-gold btn-xs" onclick="adminAwardPointsToPlayer('${p.key}', 50)">+50 pts</button>
-            <button type="button" class="btn-success btn-xs" onclick="adminRevivePlayer('${p.key}')">Recolocar</button>
+  return entries.slice(0, 80).map((p, idx) => {
+    const inPenalty = !!(p.eliminated && p.penaltyUntilMs && Date.now() < p.penaltyUntilMs);
+    const leftSec = inPenalty ? Math.ceil((p.penaltyUntilMs - Date.now()) / 1000) : 0;
+    const statusLabel = p.eliminated
+      ? (inPenalty ? `<span class="status-pill-elim">Castigo (${leftSec}s)</span>` : '<span class="status-pill-elim">Eliminado</span>')
+      : '<span class="status-pill-active">Na Disputa</span>';
+
+    return `
+      <tr>
+        <td><strong>#${idx + 1}</strong></td>
+        <td>
+          <strong>${p.name}</strong>
+          <div style="font-size:0.74rem; color:var(--text-muted);">(${p.cls || "Geral"})</div>
+        </td>
+        <td>${statusLabel}</td>
+        <td>${p.stageScore ?? p.score ?? 0}</td>
+        <td style="color:var(--gold); font-weight:900;">${p.score || 0}</td>
+        <td>${Array.isArray(p.words) ? p.words.length : 0}</td>
+        <td>${p.mathSolved || 0}</td>
+        <td>
+          <div class="mod-btn-group">
+            <div class="mod-btn-row">
+              <button type="button" class="btn-gold btn-xs" onclick="adminAwardPointsToPlayer('${p.key}', 50)">+50 pts</button>
+              <button type="button" class="btn-success btn-xs" onclick="adminRevivePlayer('${p.key}')">Recolocar</button>
+            </div>
+            <div class="mod-btn-row">
+              <button type="button" class="btn-danger btn-xs" onclick="adminEliminatePlayer('${p.key}', 1)">Eliminar 1m</button>
+              <button type="button" class="btn-danger btn-xs" onclick="adminEliminatePlayer('${p.key}', 2)">Eliminar 2m</button>
+            </div>
           </div>
-          <button type="button" class="btn-danger btn-xs" onclick="adminEliminatePlayer('${p.key}')">Eliminar</button>
-        </div>
-      </td>
-    </tr>
-  `).join("");
+        </td>
+      </tr>
+    `;
+  }).join("");
 }
 
 function renderTeacherConsole() {
