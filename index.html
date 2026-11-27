@@ -169,13 +169,25 @@
     <div class="hero-panel">
       <div style="font-size:0.8rem; color:var(--accent); font-weight:800; text-transform:uppercase;">Plataforma Educacional • Até 40–80 Jogadores por Sala</div>
       <h1 style="font-size:1.7rem; font-weight:900; margin-top:6px;">Investigação Morfológica &amp; Desafios Matemáticos em Tempo Real</h1>
-      <p style="color:#cbd5e1; margin-top:6px;">Entre em salas 24h com sua conta, abra uma sala de aula como professor ou acesse o painel de controle administrativo.</p>
+      <p style="color:#cbd5e1; margin-top:6px;">Na escola, entre direto com o código da sala sem precisar de conta. Fora da escola, acesse as Salas 24h com sua conta.</p>
+
+      <!-- ENTRAR COM CÓDIGO NA ESCOLA (SEM LOGIN) -->
+      <div class="card card-student" style="margin-top:18px; background: rgba(7, 22, 51, 0.85);">
+        <h2 style="margin-bottom:4px;">🎮 Entrar com Código da Sala (Acesso Rápido na Escola)</h2>
+        <p style="margin-bottom:12px;">Sem necessidade de criar conta ou fazer login. Digite seu nome, turma e o PIN de 4 letras do professor.</p>
+        <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap:10px;">
+          <input type="text" id="quickCodeName" placeholder="Seu nome (Ex: Ana)">
+          <input type="text" id="quickCodeClass" placeholder="Sua turma (Ex: 8º Ano B)">
+          <input type="text" id="quickCodePin" maxlength="4" placeholder="PIN (Ex: A1B2)" style="text-transform:uppercase; letter-spacing:2px; font-weight:800;">
+          <button type="button" class="btn-success" onclick="enterRoomByQuickCode()">🚀 Entrar com Código</button>
+        </div>
+      </div>
 
       <div class="hero-actions-grid">
         <div class="action-tile">
           <div>
             <div style="font-weight:900; font-size:1.1rem; color:var(--accent);">🌐 Salas Online 24h (/salas-online)</div>
-            <p style="font-size:0.88rem; color:#cbd5e1; margin-top:6px;">Jogue a qualquer hora com sua conta logada, sem precisar que um professor abra uma sala na hora.</p>
+            <p style="font-size:0.88rem; color:#cbd5e1; margin-top:6px;">Para jogar em casa ou fora da escola com conta logada, sem depender do professor abrir uma sala na hora.</p>
           </div>
           <button type="button" class="btn-primary" onclick="navigateToRoute('/salas-online')">Ir para Salas 24h</button>
         </div>
@@ -225,7 +237,7 @@
   <section id="routeSalasOnline" class="route-view hidden">
     <div id="salas24hAuthGate" class="card card-student" style="max-width:520px; margin:0 auto 20px auto;">
       <h2>🔐 Login Necessário para Salas 24h</h2>
-      <p>Para jogar nas salas online 24h sem depender do professor, entre com sua conta cadastrada.</p>
+      <p>Para jogar nas salas online 24h fora da escola, entre com sua conta. Na escola, você pode usar <strong>Entrar com Código</strong> na Home sem conta.</p>
       <div class="form-group">
         <label>E-mail</label>
         <input type="email" id="salas24hEmail" placeholder="seuemail@exemplo.com">
@@ -261,41 +273,41 @@
 
       <div class="rooms-24h-grid" id="rooms24hCardsGrid"></div>
     </div>
+  </section>
 
-    <!-- ARENA DE JOGO ATIVA (ALUNO / SALAS 24H) -->
-    <div id="activeArenaBox" class="hidden" style="margin-top:16px;">
-      <div class="room-banner" style="padding:12px 18px;">
-        <div>
-          <strong id="arenaPlayerTitle" style="color:var(--accent); font-size:1.05rem;">Jogador</strong>
-          <span id="arenaRoomSub" style="color:var(--text-muted); font-size:0.85rem; margin-left:6px;"></span>
-        </div>
-        <div style="display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
-          <div class="math-meter" id="arenaMathIndicator">⏱️ Questão em 02:00</div>
-          <div>Pontos: <strong id="arenaScore" style="color:var(--gold); font-size:1.2rem;">0</strong></div>
-          <div>Restantes: <strong id="arenaRemaining" style="color:var(--success); font-size:1.1rem;">16</strong></div>
-        </div>
+  <!-- ARENA DE JOGO ATIVA (COMPARTILHADA PARA ENTRADA POR CÓDIGO E SALAS 24H) -->
+  <section id="activeArenaSection" class="hidden" style="margin-top:16px;">
+    <div class="room-banner" style="padding:12px 18px;">
+      <div>
+        <strong id="arenaPlayerTitle" style="color:var(--accent); font-size:1.05rem;">Jogador</strong>
+        <span id="arenaRoomSub" style="color:var(--text-muted); font-size:0.85rem; margin-left:6px;"></span>
+      </div>
+      <div style="display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
+        <div class="math-meter" id="arenaMathIndicator">⏱️ Questão em 02:00</div>
+        <div>Pontos: <strong id="arenaScore" style="color:var(--gold); font-size:1.2rem;">0</strong></div>
+        <div>Restantes: <strong id="arenaRemaining" style="color:var(--success); font-size:1.1rem;">16</strong></div>
+      </div>
+    </div>
+
+    <div class="math-timer-banner" id="arenaMathBanner">
+      <span>🧮 A cada <strong>2 minutos</strong> de partida será aberta uma questão de matemática.</span>
+      <span>Próxima questão em: <strong class="math-timer-clock" id="arenaMathClock">02:00</strong></span>
+    </div>
+
+    <div class="game-layout">
+      <div class="card">
+        <h2 id="arenaStoryTitle">📜 Conto</h2>
+        <div class="story-box" id="arenaStoryBox"></div>
+        <div class="word-chips" id="arenaWordChips" style="margin-top:12px;"></div>
       </div>
 
-      <div class="math-timer-banner" id="arenaMathBanner">
-        <span>🧮 A cada <strong>2 minutos</strong> de partida será aberta uma questão de matemática.</span>
-        <span>Próxima questão em: <strong class="math-timer-clock" id="arenaMathClock">02:00</strong></span>
-      </div>
-
-      <div class="game-layout">
-        <div class="card">
-          <h2 id="arenaStoryTitle">📜 Conto</h2>
-          <div class="story-box" id="arenaStoryBox"></div>
-          <div class="word-chips" id="arenaWordChips" style="margin-top:12px;"></div>
+      <div class="card">
+        <div class="grid-header-bar">
+          <span style="font-weight:800; color:var(--accent); font-size:0.92rem;">🔎 GRADE DE BUSCA (14×14)</span>
+          <span style="font-size:0.78rem; color:var(--text-muted);">Arraste ou toque nas letras</span>
         </div>
-
-        <div class="card">
-          <div class="grid-header-bar">
-            <span style="font-weight:800; color:var(--accent); font-size:0.92rem;">🔎 GRADE DE BUSCA (14×14)</span>
-            <span style="font-size:0.78rem; color:var(--text-muted);">Arraste ou toque nas letras</span>
-          </div>
-          <div class="grid-wrapper">
-            <div class="ws-grid" id="arenaWsGrid"></div>
-          </div>
+        <div class="grid-wrapper">
+          <div class="ws-grid" id="arenaWsGrid"></div>
         </div>
       </div>
     </div>
@@ -505,6 +517,6 @@
   </div>
 </div>
 
-<script src="app.js?v=13"></script>
+<script src="app.js?v=14"></script>
 </body>
 </html>
