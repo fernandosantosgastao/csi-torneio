@@ -124,6 +124,8 @@ let moderatorsEmails = [];
 let botTestAllowed = false;
 let authLoadedOnce = false;
 let gateSignupMode = false;
+let routeStack = [];
+let handlingPopState = false;
 
 let activeRoomPin = "";
 let activeRoomState = null;
@@ -332,12 +334,20 @@ function showRouteSection(route) {
   }
 }
 
+function pushBackSentinel(route) {
+  try {
+    window.history.replaceState({ route, sentinel: false }, "", route);
+    window.history.pushState({ route, sentinel: true }, "", route);
+  } catch (e) {}
+}
+
 function recordRouteHistory(route, replaceState = false) {
+  if (handlingPopState) return;
   try {
     if (replaceState) {
-      window.history.replaceState({ route }, "", route);
-    } else if (window.location.pathname !== route) {
-      window.history.pushState({ route }, "", route);
+      pushBackSentinel(route);
+    } else if (window.location.pathname !== route || !window.history.state?.sentinel) {
+      window.history.pushState({ route, sentinel: true }, "", route);
     }
   } catch (e) {}
 }
@@ -352,6 +362,11 @@ async function navigateToRoute(targetPath, replaceState = false) {
 
   if (authLoadedOnce && route === "/gerador-de-salas" && !authSession) {
     toast("Faça login como professor para acessar o portal do professor.");
+  }
+
+  const prevRoute = routeStack[routeStack.length - 1];
+  if (!handlingPopState && prevRoute !== route) {
+    routeStack.push(route);
   }
 
   try { localStorage.setItem(LAST_ROUTE_KEY, route); } catch (e) {}
@@ -2154,15 +2169,29 @@ async function loadGlobalRankingTable() {
   } catch (e) {}
 }
 
-window.addEventListener("popstate", (event) => {
-  const nextPath = event?.state?.route || window.location.pathname;
-  navigateToRoute(nextPath, true);
+window.addEventListener("popstate", async () => {
+  handlingPopState = true;
+  try {
+    if (routeStack.length > 1) {
+      routeStack.pop();
+      const target = routeStack[routeStack.length - 1] || "/login";
+      pushBackSentinel(target);
+      await navigateToRoute(target, true);
+    } else {
+      const fallback = normalizePath(window.location.pathname || "/login");
+      pushBackSentinel(fallback);
+      await navigateToRoute(fallback, true);
+    }
+  } finally {
+    handlingPopState = false;
+  }
 });
 
 async function initPortal() {
   syncFullscreenButtonLabel();
   attachArenaPointerSelection();
   const initialRoute = readInitialRoute();
+  routeStack = [initialRoute];
   await navigateToRoute(initialRoute, true);
   await loadSessionAndProfile();
   await loadPlatformState();
