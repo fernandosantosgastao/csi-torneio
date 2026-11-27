@@ -124,6 +124,8 @@ let authLoadedOnce = false;
 
 let activeRoomPin = "";
 let activeRoomState = null;
+let activePlayerNick = "";
+let activePlayerClass = "Geral";
 let lastProcessedEventId = 0;
 let eventStreamChannel = null;
 let sbClient = null;
@@ -348,75 +350,6 @@ function logoutAccountSession() {
   navigateToRoute("/");
 }
 
-function syncSalas24hView() {
-  const gate = document.getElementById("salas24hAuthGate");
-  const lobby = document.getElementById("salas24hLobbyBox");
-  if (!authSession) {
-    gate?.classList.remove("hidden");
-    lobby?.classList.add("hidden");
-    return;
-  }
-  gate?.classList.add("hidden");
-  lobby?.classList.remove("hidden");
-  const label = currentProfile?.full_name || currentProfile?.email || authSession.user?.email || "Usuário";
-  document.getElementById("salas24hLoggedUser").textContent = label;
-  const nickInput = document.getElementById("playerNick24h");
-  if (nickInput && !nickInput.value) {
-    nickInput.value = (currentProfile?.full_name || (currentProfile?.email || "").split("@")[0] || "Jogador").slice(0, 22);
-  }
-  render24hRoomCards();
-}
-
-async function loginFromSalas24h(isSignup) {
-  const email = String(document.getElementById("salas24hEmail")?.value || "").trim().toLowerCase();
-  const password = String(document.getElementById("salas24hPassword")?.value || "");
-  if (!email || password.length < 6) {
-    toast("Informe e-mail e senha (mínimo 6 caracteres).");
-    return;
-  }
-  const endpoint = isSignup ? "/auth/v1/signup" : "/auth/v1/token?grant_type=password";
-  const res = await fetch(`${SUPABASE_URL}${endpoint}`, {
-    method: "POST",
-    headers: { "apikey": SUPABASE_KEY, "Content-Type": "application/json" },
-    body: JSON.stringify({ email, password })
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok || !data.access_token) {
-    toast(data.msg || data.error_description || "Falha na autenticação.");
-    return;
-  }
-  authSession = { access_token: data.access_token, user: data.user };
-  localStorage.setItem("csi_teacher_auth", JSON.stringify(authSession));
-  await loadSessionAndProfile();
-  await loadPlatformState();
-  toast("Conta conectada! Agora você já pode entrar nas salas 24h.");
-  syncSalas24hView();
-}
-
-function render24hRoomCards() {
-  const grid = document.getElementById("rooms24hCardsGrid");
-  if (!grid) return;
-  grid.innerHTML = DEFAULT_24H_ROOMS.map(rm => `
-    <div class="room-24h-card">
-      <div>
-        <div style="font-size:0.76rem; color:var(--success); font-weight:800;">● ONLINE 24H • ATÉ 40–80 JOGADORES</div>
-        <div style="font-size:1.15rem; font-weight:900; color:var(--gold); margin-top:4px;">${rm.pin} — ${rm.label}</div>
-        <div style="font-size:0.84rem; color:#cbd5e1; margin-top:4px;">Conto: ${STORIES[rm.storyIdx].title}</div>
-      </div>
-      <button type="button" class="btn-primary btn-sm" onclick="enterRoom24h('${rm.pin}', '${rm.label.replace(/'/g, "\\'")}', ${rm.storyIdx})">Entrar na Sala</button>
-    </div>
-  `).join("");
-}
-
-function joinRoom24hByCustomPin() {
-  const pin = String(document.getElementById("customPinJoin24h")?.value || "").trim().toUpperCase();
-  if (!/^[A-Z0-9]{4}$/.test(pin)) {
-    toast("Digite um PIN válido de 4 caracteres.");
-    return;
-  }
-  enterRoom24h(pin, `Sala ${pin}`, 0);
-}
-
 function buildSeedRng(seed) {
   let h = 2166136261 >>> 0;
   for (let i = 0; i < seed.length; i++) {
@@ -487,6 +420,135 @@ function makePlayerKey(name, cls) {
   return `p_${n}_${c}`;
 }
 
+/* ENTRADA RÁPIDA NA ESCOLA POR CÓDIGO (SEM CONTA) */
+async function enterRoomByQuickCode() {
+  const nick = String(document.getElementById("quickCodeName")?.value || "").trim();
+  const cls = String(document.getElementById("quickCodeClass")?.value || "Geral").trim() || "Geral";
+  const pin = String(document.getElementById("quickCodePin")?.value || "").trim().toUpperCase();
+
+  if (!nick) {
+    toast("Digite seu nome para entrar na sala.");
+    return;
+  }
+  if (!/^[A-Z0-9]{4}$/.test(pin)) {
+    toast("Digite o código PIN de 4 caracteres da sala.");
+    return;
+  }
+
+  let roomState = null;
+  try {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/salas?pin=eq.${encodeURIComponent(pin)}&select=pin,state&limit=1`, {
+      cache: "no-store",
+      headers: { "apikey": SUPABASE_KEY }
+    });
+    if (res.ok) {
+      const rows = await res.json().catch(() => []);
+      if (Array.isArray(rows) && rows[0]?.state?.grid) roomState = rows[0].state;
+    }
+  } catch (e) {}
+
+  if (!roomState) {
+    toast(`Sala ${pin} não encontrada. Verifique o PIN com o professor.`);
+    return;
+  }
+  if (roomState.closed) {
+    toast(`A sala ${pin} foi encerrada pelo professor.`);
+    return;
+  }
+
+  activeRoomPin = pin;
+  activeRoomState = roomState;
+  activePlayerNick = nick;
+  activePlayerClass = cls;
+  lastProcessedEventId = 0;
+
+  const pKey = makePlayerKey(nick, cls);
+  if (!activeRoomState.players) activeRoomState.players = {};
+  if (!activeRoomState.players[pKey]) {
+    activeRoomState.players[pKey] = { name: nick, cls, score: 0, words: [], mathSolved: 0 };
+  }
+
+  document.getElementById("activeArenaSection")?.classList.remove("hidden");
+  document.getElementById("btnLeaveActiveRoom")?.classList.remove("hidden");
+  document.getElementById("arenaPlayerTitle").textContent = nick;
+  document.getElementById("arenaRoomSub").textContent = `(${cls}) • Sala ${pin}`;
+
+  renderArenaBoard(true);
+  startTwoMinMathLoop();
+  await fetchRecentEventsAndSubscribe(pin, pKey, nick, cls);
+  toast(`Entrou na sala ${pin}!`);
+}
+
+/* SALAS 24H FORA DA ESCOLA (EXIGE CONTA LOGADA) */
+function syncSalas24hView() {
+  const gate = document.getElementById("salas24hAuthGate");
+  const lobby = document.getElementById("salas24hLobbyBox");
+  if (!authSession) {
+    gate?.classList.remove("hidden");
+    lobby?.classList.add("hidden");
+    return;
+  }
+  gate?.classList.add("hidden");
+  lobby?.classList.remove("hidden");
+  const label = currentProfile?.full_name || currentProfile?.email || authSession.user?.email || "Usuário";
+  document.getElementById("salas24hLoggedUser").textContent = label;
+  const nickInput = document.getElementById("playerNick24h");
+  if (nickInput && !nickInput.value) {
+    nickInput.value = (currentProfile?.full_name || (currentProfile?.email || "").split("@")[0] || "Jogador").slice(0, 22);
+  }
+  render24hRoomCards();
+}
+
+async function loginFromSalas24h(isSignup) {
+  const email = String(document.getElementById("salas24hEmail")?.value || "").trim().toLowerCase();
+  const password = String(document.getElementById("salas24hPassword")?.value || "");
+  if (!email || password.length < 6) {
+    toast("Informe e-mail e senha (mínimo 6 caracteres).");
+    return;
+  }
+  const endpoint = isSignup ? "/auth/v1/signup" : "/auth/v1/token?grant_type=password";
+  const res = await fetch(`${SUPABASE_URL}${endpoint}`, {
+    method: "POST",
+    headers: { "apikey": SUPABASE_KEY, "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password })
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.access_token) {
+    toast(data.msg || data.error_description || "Falha na autenticação.");
+    return;
+  }
+  authSession = { access_token: data.access_token, user: data.user };
+  localStorage.setItem("csi_teacher_auth", JSON.stringify(authSession));
+  await loadSessionAndProfile();
+  await loadPlatformState();
+  toast("Conta conectada! Agora você já pode entrar nas salas 24h.");
+  syncSalas24hView();
+}
+
+function render24hRoomCards() {
+  const grid = document.getElementById("rooms24hCardsGrid");
+  if (!grid) return;
+  grid.innerHTML = DEFAULT_24H_ROOMS.map(rm => `
+    <div class="room-24h-card">
+      <div>
+        <div style="font-size:0.76rem; color:var(--success); font-weight:800;">● ONLINE 24H • ATÉ 40–80 JOGADORES</div>
+        <div style="font-size:1.15rem; font-weight:900; color:var(--gold); margin-top:4px;">${rm.pin} — ${rm.label}</div>
+        <div style="font-size:0.84rem; color:#cbd5e1; margin-top:4px;">Conto: ${STORIES[rm.storyIdx].title}</div>
+      </div>
+      <button type="button" class="btn-primary btn-sm" onclick="enterRoom24h('${rm.pin}', '${rm.label.replace(/'/g, "\\'")}', ${rm.storyIdx})">Entrar na Sala</button>
+    </div>
+  `).join("");
+}
+
+function joinRoom24hByCustomPin() {
+  const pin = String(document.getElementById("customPinJoin24h")?.value || "").trim().toUpperCase();
+  if (!/^[A-Z0-9]{4}$/.test(pin)) {
+    toast("Digite um PIN válido de 4 caracteres.");
+    return;
+  }
+  enterRoom24h(pin, `Sala ${pin}`, 0);
+}
+
 async function enterRoom24h(pin, label, storyIdx = 0) {
   if (!authSession) {
     toast("Faça login para entrar na sala 24h.");
@@ -500,6 +562,8 @@ async function enterRoom24h(pin, label, storyIdx = 0) {
   }
 
   activeRoomPin = pin;
+  activePlayerNick = nick;
+  activePlayerClass = cls;
   lastProcessedEventId = 0;
 
   let roomState = null;
@@ -544,7 +608,7 @@ async function enterRoom24h(pin, label, storyIdx = 0) {
     activeRoomState.players[pKey] = { name: nick, cls, score: 0, words: [], mathSolved: 0 };
   }
 
-  document.getElementById("activeArenaBox")?.classList.remove("hidden");
+  document.getElementById("activeArenaSection")?.classList.remove("hidden");
   document.getElementById("btnLeaveActiveRoom")?.classList.remove("hidden");
   document.getElementById("arenaPlayerTitle").textContent = nick;
   document.getElementById("arenaRoomSub").textContent = `(${cls}) • Sala ${pin}`;
@@ -639,6 +703,8 @@ async function fetchRecentEventsAndSubscribe(pin, pKey, nick, cls) {
 }
 
 async function publishRoomEvent(payload) {
+  applyEventToLocalRoom(payload);
+  scheduleArenaUiUpdate();
   try {
     await fetch(`${SUPABASE_URL}/rest/v1/sala_eventos`, {
       method: "POST",
@@ -654,9 +720,7 @@ function renderArenaBoard(rebuildGrid = false) {
   document.getElementById("arenaStoryTitle").textContent = `📜 ${story.title}`;
   document.getElementById("arenaStoryBox").innerHTML = story.html;
 
-  const nick = String(document.getElementById("playerNick24h")?.value || currentProfile?.full_name || "Jogador").trim();
-  const cls = String(document.getElementById("playerClass24h")?.value || "Geral").trim() || "Geral";
-  const me = activeRoomState.players?.[makePlayerKey(nick, cls)];
+  const me = activeRoomState.players?.[makePlayerKey(activePlayerNick, activePlayerClass)];
   document.getElementById("arenaScore").textContent = String(me?.score || 0);
 
   const claimed = activeRoomState.claimedWords || {};
@@ -810,15 +874,13 @@ async function resolveTwoMinMath(choice) {
     resetTwoMinClock();
     toast("🧮 Questão de matemática resolvida! +60 pts");
 
-    const nick = String(document.getElementById("playerNick24h")?.value || currentProfile?.full_name || "Jogador").trim();
-    const cls = String(document.getElementById("playerClass24h")?.value || "Geral").trim() || "Geral";
     await publishRoomEvent({
       room_pin: activeRoomPin,
       stage: activeRoomState?.stage || 1,
       event_type: "MATH_SOLVED",
-      player_key: makePlayerKey(nick, cls),
-      player_name: nick,
-      player_class: cls,
+      player_key: makePlayerKey(activePlayerNick, activePlayerClass),
+      player_name: activePlayerNick,
+      player_class: activePlayerClass,
       points: 60
     });
   } else {
@@ -928,15 +990,13 @@ async function checkGrammarChoice(cls) {
     const pts = quizTries === 0 ? 100 : 70;
     const word = activeQuizItem.word;
     closeGrammarQuizModal();
-    const nick = String(document.getElementById("playerNick24h")?.value || currentProfile?.full_name || "Jogador").trim();
-    const tur = String(document.getElementById("playerClass24h")?.value || "Geral").trim() || "Geral";
     await publishRoomEvent({
       room_pin: activeRoomPin,
       stage: activeRoomState?.stage || 1,
       event_type: "CLAIM_WORD",
-      player_key: makePlayerKey(nick, tur),
-      player_name: nick,
-      player_class: tur,
+      player_key: makePlayerKey(activePlayerNick, activePlayerClass),
+      player_name: activePlayerNick,
+      player_class: activePlayerClass,
       word,
       points: pts
     });
@@ -958,7 +1018,7 @@ function leaveCurrentMatchToHub() {
   if (twoMinTimerInterval) clearInterval(twoMinTimerInterval);
   activeRoomPin = "";
   activeRoomState = null;
-  document.getElementById("activeArenaBox")?.classList.add("hidden");
+  document.getElementById("activeArenaSection")?.classList.add("hidden");
   document.getElementById("btnLeaveActiveRoom")?.classList.add("hidden");
 }
 
