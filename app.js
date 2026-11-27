@@ -612,38 +612,42 @@ function applyEventToLocalRoom(ev) {
   if (!activeRoomState.claimedWords) activeRoomState.claimedWords = {};
 
   const pk = ev.player_key || makePlayerKey(ev.player_name, ev.player_class);
-  const pl = ensurePlayerEntry(pk, ev.player_name, ev.player_class);
+  if (pk && !String(pk).startsWith("admin_")) {
+    const pl = ensurePlayerEntry(pk, ev.player_name, ev.player_class);
 
-  if (ev.event_type === "CLAIM_WORD" && ev.word) {
-    if (!pl.eliminated && !activeRoomState.claimedWords[ev.word]) {
-      const pts = Number(ev.points || 100);
-      activeRoomState.claimedWords[ev.word] = { by: pl.name, points: pts };
-      pl.score = Number(pl.score || 0) + pts;
-      pl.stageScore = Number(pl.stageScore || 0) + pts;
-      if (!Array.isArray(pl.words)) pl.words = [];
-      if (!pl.words.includes(ev.word)) pl.words.push(ev.word);
+    if (ev.event_type === "CLAIM_WORD" && ev.word) {
+      if (!pl.eliminated && !activeRoomState.claimedWords[ev.word]) {
+        const pts = Number(ev.points || 100);
+        activeRoomState.claimedWords[ev.word] = { by: pl.name, points: pts };
+        pl.score = Number(pl.score || 0) + pts;
+        pl.stageScore = Number(pl.stageScore || 0) + pts;
+        if (!Array.isArray(pl.words)) pl.words = [];
+        if (!pl.words.includes(ev.word)) pl.words.push(ev.word);
+      }
+    } else if (ev.event_type === "MATH_SOLVED") {
+      if (!pl.eliminated) {
+        const pts = Number(ev.points || 60);
+        pl.score = Number(pl.score || 0) + pts;
+        pl.stageScore = Number(pl.stageScore || 0) + pts;
+        pl.mathSolved = Number(pl.mathSolved || 0) + 1;
+      }
     }
-  } else if (ev.event_type === "MATH_SOLVED") {
-    if (!pl.eliminated) {
-      const pts = Number(ev.points || 60);
-      pl.score = Number(pl.score || 0) + pts;
-      pl.stageScore = Number(pl.stageScore || 0) + pts;
-      pl.mathSolved = Number(pl.mathSolved || 0) + 1;
-    }
-  } else if (ev.event_type === "ADMIN_BONUS_POINTS") {
+  }
+
+  if (ev.event_type === "ADMIN_BONUS_POINTS") {
     const targetKey = ev.target_player_key || pk;
-    const targetPlayer = activeRoomState.players[targetKey] || pl;
-    const addPts = Number(ev.bonus_points ?? ev.points ?? 50);
-    targetPlayer.score = Number(targetPlayer.score || 0) + addPts;
-    targetPlayer.stageScore = Number(targetPlayer.stageScore || 0) + addPts;
+    const targetPlayer = activeRoomState.players[targetKey];
+    if (targetPlayer) {
+      const addPts = Number(ev.bonus_points ?? ev.points ?? 50);
+      targetPlayer.score = Number(targetPlayer.score || 0) + addPts;
+      targetPlayer.stageScore = Number(targetPlayer.stageScore || 0) + addPts;
+    }
   } else if (ev.event_type === "ADMIN_REVIVE_PLAYER") {
     const targetKey = ev.target_player_key || pk;
-    const targetPlayer = activeRoomState.players[targetKey] || pl;
-    targetPlayer.eliminated = false;
+    if (activeRoomState.players[targetKey]) activeRoomState.players[targetKey].eliminated = false;
   } else if (ev.event_type === "ADMIN_ELIMINATE_PLAYER") {
     const targetKey = ev.target_player_key || pk;
-    const targetPlayer = activeRoomState.players[targetKey] || pl;
-    targetPlayer.eliminated = true;
+    if (activeRoomState.players[targetKey]) activeRoomState.players[targetKey].eliminated = true;
   } else if (ev.event_type === "ADMIN_END_MATCH") {
     activeRoomState.started = false;
     activeRoomState.ended = true;
@@ -1126,7 +1130,10 @@ async function createManagedClassRoom() {
 }
 
 async function persistRoomStatePatch(patchObj) {
-  if (!activeRoomPin || !activeRoomState) return;
+  if (!activeRoomPin || !activeRoomState) {
+    toast("Selecione ou abra uma sala primeiro.");
+    return;
+  }
   Object.assign(activeRoomState, patchObj);
   await fetch(`${SUPABASE_URL}/rest/v1/salas`, {
     method: "POST",
@@ -1141,7 +1148,7 @@ async function persistRoomStatePatch(patchObj) {
 }
 
 async function consoleStartMatch() {
-  if (!activeRoomState) return;
+  if (!activeRoomState) return toast("Selecione uma sala primeiro.");
   await persistRoomStatePatch({ started: true, ended: false });
   renderTeacherConsole();
   renderAdminRoomInspector();
@@ -1149,7 +1156,7 @@ async function consoleStartMatch() {
 }
 
 async function consoleNewMatch() {
-  if (!activeRoomState) return;
+  if (!activeRoomState) return toast("Selecione uma sala primeiro.");
   const nextStoryIdx = ((activeRoomState.storyIdx || 0) + 1) % STORIES.length;
   const story = STORIES[nextStoryIdx];
   const built = buildWordSearchMatrix(`${activeRoomPin}_match_${Date.now()}`, story.words);
@@ -1172,7 +1179,7 @@ async function consoleNewMatch() {
 }
 
 async function consoleAdvanceStage() {
-  if (!activeRoomState) return;
+  if (!activeRoomState) return toast("Selecione uma sala primeiro.");
   const nextStage = (activeRoomState.stage || 1) + 1;
   const nextStoryIdx = ((activeRoomState.storyIdx || 0) + 1) % STORIES.length;
   const story = STORIES[nextStoryIdx];
@@ -1193,7 +1200,7 @@ async function consoleAdvanceStage() {
 }
 
 async function consoleToggleClose() {
-  if (!activeRoomState) return;
+  if (!activeRoomState) return toast("Selecione uma sala primeiro.");
   await persistRoomStatePatch({ closed: !activeRoomState.closed });
   await publishRoomEvent({
     room_pin: activeRoomPin,
@@ -1250,7 +1257,7 @@ async function adminEliminatePlayer(playerKey) {
 }
 
 function exportRoomCsv() {
-  if (!activeRoomState) return;
+  if (!activeRoomState) return toast("Selecione uma sala primeiro.");
   const entries = Object.values(activeRoomState.players || {}).sort((a, b) => (b.score || 0) - (a.score || 0));
   const lines = ["Posicao,Investigador,Turma,Status,PontosFase,PontosTotal,Palavras,Matematica"];
   entries.forEach((p, idx) => {
@@ -1372,10 +1379,20 @@ function renderTeacherConsole() {
 }
 
 async function inspectRoomInConsole(pin) {
-  if (!pin) return;
-  const cleanPin = String(pin).trim().toUpperCase();
+  const cleanPin = String(pin || "").trim().toUpperCase();
+  if (!cleanPin) return toast("Informe um PIN válido.");
+
   activeRoomPin = cleanPin;
   lastProcessedEventId = 0;
+
+  const inspectorBox = document.getElementById("adminRoomInspector");
+  if (inspectorBox) inspectorBox.classList.remove("hidden");
+  document.getElementById("teacherLiveConsole")?.classList.remove("hidden");
+  document.getElementById("inspRoomPin").textContent = cleanPin;
+  document.getElementById("inspRoomTitle").textContent = `Turma ${cleanPin}`;
+  document.getElementById("inspRoomMeta").textContent = "Carregando participantes e eventos...";
+  document.getElementById("inspPlayersBody").innerHTML =
+    `<tr><td colspan="8" style="text-align:center; color:var(--text-muted);">Carregando jogadores da sala ${cleanPin}...</td></tr>`;
 
   let roomState = null;
   try {
@@ -1385,42 +1402,52 @@ async function inspectRoomInConsole(pin) {
     });
     if (res.ok) {
       const rows = await res.json().catch(() => []);
-      if (Array.isArray(rows) && rows[0]?.state?.grid) roomState = rows[0].state;
+      if (Array.isArray(rows) && rows[0]?.state && typeof rows[0].state === "object") {
+        roomState = rows[0].state;
+      }
     }
   } catch (e) {}
 
-  if (!roomState) {
+  if (!roomState || !Array.isArray(roomState.grid)) {
     const built = buildWordSearchMatrix(`inspect_${cleanPin}`, STORIES[0].words);
     roomState = {
       pin: cleanPin,
-      roomLabel: `Turma ${cleanPin}`,
+      roomLabel: roomState?.roomLabel || `Turma ${cleanPin}`,
       started: true,
       ended: false,
-      closed: false,
-      stage: 1,
-      storyIdx: 0,
+      closed: !!roomState?.closed,
+      stage: roomState?.stage || 1,
+      storyIdx: roomState?.storyIdx || 0,
       grid: built.grid,
       wordPlacements: built.placements,
-      claimedWords: {},
-      players: {}
+      claimedWords: roomState?.claimedWords || {},
+      players: roomState?.players || {}
     };
   }
 
   activeRoomState = roomState;
-  document.getElementById("teacherLiveConsole")?.classList.remove("hidden");
-  document.getElementById("adminRoomInspector")?.classList.remove("hidden");
   await fetchRecentEventsAndSubscribe(cleanPin, null, null, null);
   renderTeacherConsole();
   renderAdminRoomInspector();
+  inspectorBox?.scrollIntoView({ behavior: "smooth", block: "nearest" });
 }
 
 function renderAdminRoomInspector() {
   const box = document.getElementById("adminRoomInspector");
-  if (!box || box.classList.contains("hidden") || !activeRoomState) return;
+  if (!box || box.classList.contains("hidden")) return;
+
+  if (!activeRoomState || !activeRoomPin) {
+    document.getElementById("inspRoomPin").textContent = "----";
+    document.getElementById("inspRoomTitle").textContent = "Sala";
+    document.getElementById("inspRoomMeta").textContent = "---";
+    document.getElementById("inspPlayersBody").innerHTML =
+      `<tr><td colspan="8" style="text-align:center; color:var(--text-muted);">Selecione uma sala acima.</td></tr>`;
+    return;
+  }
 
   const story = STORIES[(activeRoomState.storyIdx || 0) % STORIES.length];
-  document.getElementById("inspRoomPin").textContent = activeRoomState.pin;
-  document.getElementById("inspRoomTitle").textContent = activeRoomState.roomLabel || `Sala ${activeRoomState.pin}`;
+  document.getElementById("inspRoomPin").textContent = activeRoomState.pin || activeRoomPin;
+  document.getElementById("inspRoomTitle").textContent = activeRoomState.roomLabel || `Sala ${activeRoomPin}`;
 
   const entries = Object.entries(activeRoomState.players || {})
     .map(([k, v]) => ({ key: k, ...v }))
@@ -1437,7 +1464,7 @@ function renderAdminRoomInspector() {
   if (tbody) {
     tbody.innerHTML = entries.length
       ? buildModerationRowsHtml(entries)
-      : `<tr><td colspan="8" style="text-align:center; color:var(--text-muted);">Nenhum jogador registrado nesta sala.</td></tr>`;
+      : `<tr><td colspan="8" style="text-align:center; color:var(--text-muted);">Nenhum jogador encontrado nesta sala.</td></tr>`;
   }
 }
 
