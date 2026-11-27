@@ -287,7 +287,7 @@
         <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap:10px;">
           <input type="text" id="quickCodeName" placeholder="Seu nome (Ex: Ana)">
           <input type="text" id="quickCodeClass" placeholder="Sua turma (Ex: 8º Ano B)">
-          <input type="text" id="quickCodePin" maxlength="4" placeholder="PIN (Ex: T80A)" style="text-transform:uppercase; letter-spacing:2px; font-weight:800;">
+          <input type="text" id="quickCodePin" maxlength="4" placeholder="PIN (Ex: AT74)" style="text-transform:uppercase; letter-spacing:2px; font-weight:800;">
           <button type="button" class="btn-success" onclick="enterRoomByQuickCode()">🚀 Entrar com Código</button>
         </div>
       </div>
@@ -304,7 +304,7 @@
         <div class="action-tile">
           <div>
             <div style="font-weight:900; font-size:1.1rem; color:var(--gold);">🧑‍🏫 Gerador de Salas (/gerador-de-salas)</div>
-            <p style="font-size:0.88rem; color:#cbd5e1; margin-top:6px;">Área exclusiva para professores criarem salas com PIN, gerirem fases e acompanharem a turma.</p>
+            <p style="font-size:0.88rem; color:#cbd5e1; margin-top:6px;">Área exclusiva para cada professor criar, gerenciar e restaurar (até 30 dias) apenas as próprias salas.</p>
           </div>
           <button type="button" class="btn-gold" onclick="navigateToRoute('/gerador-de-salas')">Abrir Gerador de Salas</button>
         </div>
@@ -312,7 +312,7 @@
         <div class="action-tile" id="homeAdminCard" style="display:none; border-color: rgba(192, 132, 252, 0.55);">
           <div>
             <div style="font-weight:900; font-size:1.1rem; color:#e9d5ff;">🛡️ Painel de Controle (/painel-de-controle)</div>
-            <p style="font-size:0.88rem; color:#cbd5e1; margin-top:6px;">Gestão completa de contas, redefinição de senhas, moderadores, todas as salas, ranking e modo 4 bots.</p>
+            <p style="font-size:0.88rem; color:#cbd5e1; margin-top:6px;">Controle soberano de todas as salas, bloqueio/exclusão master, moderadores, contas e ranking.</p>
           </div>
           <button type="button" class="btn-purple" onclick="navigateToRoute('/painel-de-controle')">Abrir Painel de Controle</button>
         </div>
@@ -422,11 +422,11 @@
     </div>
   </section>
 
-  <!-- ROTA 3: GERADOR DE SALAS (/gerador-de-salas) -->
+  <!-- ROTA 3: GERADOR DE SALAS (/gerador-de-salas) - APENAS SALAS DO PRÓPRIO PROFESSOR -->
   <section id="routeCreateClass" class="route-view hidden">
     <div id="teacherLoginCard" class="card card-teacher" style="max-width:520px; margin:0 auto;">
       <h2>🧑‍🏫 Acesso Exclusivo para Professores</h2>
-      <p>Faça login com sua conta de professor para gerar salas, gerenciar turmas e controlar as fases.</p>
+      <p>Faça login com sua conta de professor para criar, gerenciar e restaurar (até 30 dias) apenas as suas próprias salas.</p>
       <div class="form-group">
         <label>E-mail do Professor</label>
         <input type="email" id="teacherLoginEmail" placeholder="professor@escola.com.br">
@@ -442,20 +442,36 @@
       <div class="card card-teacher" style="margin-bottom:18px;">
         <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
           <div>
-            <h2 style="margin-bottom:4px;">⚡ Gerador de Salas do Torneio</h2>
-            <p style="margin-bottom:0;">Professor: <strong id="teacherActiveName" style="color:var(--gold);">---</strong></p>
+            <h2 style="margin-bottom:4px;">⚡ Minhas Salas &amp; Gerador de Torneio</h2>
+            <p style="margin-bottom:0;">Professor: <strong id="teacherActiveName" style="color:var(--gold);">---</strong> • Cada professor vê e controla apenas as salas que criou.</p>
           </div>
           <div style="display:flex; gap:8px; flex-wrap:wrap;">
-            <input type="text" id="openExistingPinInput" maxlength="4" placeholder="Abrir PIN (Ex: T80A)" style="width:150px; text-transform:uppercase; letter-spacing:2px;">
-            <button type="button" class="btn-primary btn-sm" onclick="inspectRoomInConsole(document.getElementById('openExistingPinInput')?.value)">Carregar Sala</button>
+            <button type="button" class="btn-primary btn-sm" onclick="loadTeacherOwnRooms()">↻ Atualizar Minhas Salas</button>
             <button type="button" class="btn-ghost btn-sm" onclick="logoutAccountSession()">Sair</button>
           </div>
         </div>
 
         <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap:12px; margin-top:14px;">
           <input type="text" id="newClassLabelInput" value="Turma A" placeholder="Nome da sala / turma">
-          <input type="text" id="newClassCustomPinInput" maxlength="4" placeholder="PIN opcional (4 letras)" style="text-transform:uppercase; letter-spacing:2px;">
+          <input type="text" id="newClassCustomPinInput" maxlength="4" placeholder="PIN opcional (Ex: AT74)" style="text-transform:uppercase; letter-spacing:2px;">
           <button type="button" class="btn-gold" onclick="createManagedClassRoom()">🚀 Criar Nova Sala</button>
+        </div>
+
+        <div style="margin-top:16px; overflow-x:auto;">
+          <table>
+            <thead>
+              <tr>
+                <th>PIN</th>
+                <th>SALA</th>
+                <th>JOGADORES</th>
+                <th>ESTADO</th>
+                <th>AÇÕES DO PROFESSOR</th>
+              </tr>
+            </thead>
+            <tbody id="teacherOwnRoomsBody">
+              <tr><td colspan="5" style="text-align:center; color:var(--text-muted);">Carregando suas salas...</td></tr>
+            </tbody>
+          </table>
         </div>
       </div>
 
@@ -464,7 +480,7 @@
           <div style="display:flex; align-items:center; gap:16px; flex-wrap:wrap;">
             <div>
               <div style="font-size:0.74rem; color:var(--accent); font-weight:800; letter-spacing:0.6px;">CÓDIGO DE ACESSO DA TURMA:</div>
-              <div class="pin-display" id="consolePinDisplay">T80A</div>
+              <div class="pin-display" id="consolePinDisplay">----</div>
             </div>
             <div>
               <div id="consoleRoomName" style="font-weight:900; font-size:1.15rem;">Turma A</div>
@@ -473,11 +489,13 @@
             </div>
           </div>
 
-          <div style="display:flex; gap:8px; flex-wrap:wrap;">
+          <div style="display:flex; gap:8px; flex-wrap:wrap;" id="teacherConsoleActionButtons">
+            <button type="button" class="btn-success btn-sm" id="btnConsoleStartMatch" onclick="consoleStartMatch()">🚀 Iniciar Partida</button>
+            <button type="button" class="btn-danger btn-sm" id="btnConsoleEndMatch" onclick="consoleEndMatch()">⏹️ Encerrar Partida</button>
             <button type="button" class="btn-gold btn-sm" id="btnConsoleStartOrNext" onclick="consoleAdvanceStage()">⏭️ Encerrar Fase &amp; Classificar</button>
             <button type="button" class="btn-danger btn-sm" id="btnConsoleToggleRoom" onclick="consoleToggleClose()">🔒 Encerrar Sala</button>
             <button type="button" class="btn-success btn-sm" onclick="exportRoomCsv()">📥 Exportar (CSV)</button>
-            <button type="button" class="btn-primary btn-sm" onclick="consoleNewMatch()">🔄 Novo Torneio</button>
+            <button type="button" class="btn-primary btn-sm" id="btnConsoleNewMatch" onclick="consoleNewMatch()">🔄 Novo Torneio</button>
           </div>
         </div>
 
@@ -519,7 +537,7 @@
     </div>
   </section>
 
-  <!-- ROTA 4: PAINEL DE CONTROLE (/painel-de-controle) -->
+  <!-- ROTA 4: PAINEL DE CONTROLE (/painel-de-controle) - CONTROLE SOBERANO DO MASTER ADMIN -->
   <section id="routeControlPanel" class="route-view hidden">
     <div class="hero-panel" style="border-color: rgba(192, 132, 252, 0.55);">
       <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
@@ -600,7 +618,7 @@
 
     <div class="card card-ranking" style="margin-top:18px;">
       <h2>🏫 Todas as Salas da Plataforma (24h, Professores e Ativas)</h2>
-      <p style="margin-bottom:12px;">Visão completa de todas as salas criadas por qualquer usuário, salas 24h e salas com eventos ao vivo.</p>
+      <p style="margin-bottom:12px;">Apenas você (Master Admin) e moderadores autorizados veem todas as salas. Ao trancar/bloquear ou excluir como Admin, o professor perde controle sobre a sala.</p>
       <div style="overflow-x:auto;">
         <table>
           <thead>
@@ -609,8 +627,8 @@
               <th>Sala / Criador</th>
               <th>Modo</th>
               <th>Jogadores</th>
-              <th>Status</th>
-              <th>Ações</th>
+              <th>Estado / Bloqueio</th>
+              <th>Ações Master</th>
             </tr>
           </thead>
           <tbody id="ctrlRoomsBody">
@@ -636,6 +654,7 @@
           <button type="button" class="btn-success btn-sm" onclick="consoleStartMatch()">🚀 Iniciar</button>
           <button type="button" class="btn-gold btn-sm" onclick="consoleAdvanceStage()">⏭️ Encerrar Fase &amp; Classificar</button>
           <button type="button" class="btn-danger btn-sm" onclick="consoleToggleClose()">🔒 Fechar/Reabrir Sala</button>
+          <button type="button" class="btn-purple btn-sm" onclick="adminToggleLockRoom(activeRoomPin)">🔐 Trancar/Bloquear Prof.</button>
           <button type="button" class="btn-ghost btn-sm" onclick="exportRoomCsv()">📥 CSV</button>
           <button type="button" class="btn-primary btn-sm" onclick="consoleNewMatch()">🔄 Novo Torneio</button>
         </div>
@@ -692,6 +711,6 @@
   </div>
 </div>
 
-<script src="app.js?v=17"></script>
+<script src="app.js?v=18"></script>
 </body>
 </html>
