@@ -169,18 +169,62 @@
 
     .exit-focus-fab {
       position: fixed;
-      top: 12px;
-      right: 12px;
+      top: calc(env(safe-area-inset-top, 0px) + 10px);
+      right: calc(env(safe-area-inset-right, 0px) + 10px);
       z-index: 2147483640;
-      padding: 8px 14px;
+      padding: 7px 12px;
       border-radius: 999px;
-      background: rgba(15, 23, 42, 0.94);
+      background: rgba(15, 23, 42, 0.96);
       border: 1.5px solid #38bdf8;
       color: #f8fafc;
       font-weight: 800;
-      font-size: 0.82rem;
+      font-size: 0.78rem;
+      line-height: 1.1;
       cursor: pointer;
       box-shadow: 0 8px 24px rgba(0, 0, 0, 0.55);
+    }
+
+    body.focus-wordsearch-mode {
+      overflow-y: auto !important;
+      overflow-x: hidden !important;
+      height: auto !important;
+      min-height: 100dvh !important;
+      -webkit-overflow-scrolling: touch !important;
+    }
+
+    body.focus-wordsearch-mode .container {
+      overflow: visible !important;
+      height: auto !important;
+      max-height: none !important;
+      padding-top: calc(env(safe-area-inset-top, 0px) + 52px) !important;
+      padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 72px) !important;
+    }
+
+    body.focus-wordsearch-mode #studentGameArea,
+    body.focus-wordsearch-mode #botGameArea {
+      display: flex !important;
+      flex-direction: column !important;
+      gap: 14px !important;
+      overflow: visible !important;
+      height: auto !important;
+    }
+
+    body.focus-wordsearch-mode .grid-wrapper,
+    body.focus-wordsearch-mode .ws-grid {
+      overflow: visible !important;
+      max-height: none !important;
+      position: relative !important;
+      z-index: 1 !important;
+    }
+
+    body.focus-wordsearch-mode #studentWordChips,
+    body.focus-wordsearch-mode #botWordChips {
+      display: flex !important;
+      flex-wrap: wrap !important;
+      gap: 8px !important;
+      position: relative !important;
+      z-index: 2 !important;
+      padding-bottom: 12px !important;
     }
 
     body.focus-wordsearch-mode header,
