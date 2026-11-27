@@ -1020,6 +1020,7 @@ function configureWinnerModalStyle(isWinnerUser) {
 }
 
 function triggerFinalBoardCelebration() {
+  victoryModalDismissedForMatch = true;
   document.getElementById("victoryModal").classList.add("hidden");
   launchConfettiBurst(45);
 
@@ -1495,6 +1496,7 @@ let roomPin = "";
 let pollTimer = null;
 let joinRetryTimer = null;
 let lastBuiltGridKey = "";
+let victoryModalDismissedForMatch = false;
 
 let gameState = {
   v: 1,
@@ -1600,6 +1602,7 @@ function resetToLobby() {
   unsubscribeRoomRealtime();
   isBotModeActive = false;
   isRecompLocked = false;
+  victoryModalDismissedForMatch = false;
   playerStreak = 0;
   document.body.classList.remove("pseudo-fullscreen");
   document.body.classList.remove("focus-wordsearch-mode");
@@ -1841,6 +1844,7 @@ function startInstantBotMatch() {
 
   isBotModeActive = true;
   isRecompLocked = false;
+  victoryModalDismissedForMatch = false;
   playerStreak = 0;
   myName = document.getElementById("inputStudentName").value.trim() || "Diretora";
   const baseBotStory = STORY_BANK[Math.floor(Math.random() * STORY_BANK.length)];
@@ -1979,6 +1983,7 @@ function renderBotTestUI(forceRebuild = false) {
 }
 
 function showBotTestRankingModal() {
+  if (victoryModalDismissedForMatch) return;
   const human = botPlayers.find(p => p.isHuman);
   const botsSorted = botPlayers.filter(p => !p.isHuman).sort((a, b) => b.score - a.score);
   if (human && botsSorted.length > 0 && human.score <= botsSorted[0].score) {
@@ -2227,6 +2232,7 @@ async function startTournamentMatch() {
     return;
   }
 
+  victoryModalDismissedForMatch = false;
   gameState.closed = false;
   gameState.started = true;
   gameState.v = (gameState.v || 1) + 1;
@@ -2289,6 +2295,7 @@ async function restartFullTournament() {
   const story = randomizeStorySupportSentences(STORY_BANK[initialStoryIdx]);
   const { grid, placements } = generateGrid(roomPin + "_reset_" + Date.now(), story.words);
 
+  victoryModalDismissedForMatch = false;
   gameState.v = (gameState.v || 1) + 1;
   gameState.closed = false;
   gameState.started = false;
@@ -2447,6 +2454,7 @@ function reconcileRemoteStudentRoomState(remote) {
   if (!remote.started) {
     myLocalWords.clear();
     myLocalScore = 0;
+    victoryModalDismissedForMatch = false;
     playerStreak = 0;
     lastTriggeredGlobalMilestone = 0;
     isMathLocked = false;
@@ -2468,6 +2476,7 @@ function reconcileRemoteStudentRoomState(remote) {
   }
 
   if (!wasStarted && remote.started) {
+    victoryModalDismissedForMatch = false;
     gameState = remote;
     const meStart = gameState.players && gameState.players[myPlayerId];
     if (meStart && typeof meStart.score === "number") {
@@ -2482,6 +2491,7 @@ function reconcileRemoteStudentRoomState(remote) {
 
   if (stageChanged) {
     myLocalWords.clear();
+    victoryModalDismissedForMatch = false;
     lastTriggeredGlobalMilestone = 0;
     isMathLocked = false;
     isRecompLocked = false;
@@ -2519,6 +2529,7 @@ function reconcileRemoteStudentRoomState(remote) {
   }
 
   if (!remote.finished) {
+    victoryModalDismissedForMatch = false;
     myLocalWords.forEach(w => {
       if (!remote.claimedWords[w]) {
         remote.claimedWords[w] = { by: myName, points: 100 };
@@ -2553,7 +2564,9 @@ function reconcileRemoteStudentRoomState(remote) {
     isRecompLocked = false;
     document.getElementById("mathModal").classList.add("hidden");
     document.getElementById("recompositionModal").classList.add("hidden");
-    showFinalTop3Modal();
+    if (!victoryModalDismissedForMatch) {
+      showFinalTop3Modal();
+    }
   } else if (!me || me.status === "active") {
     checkGlobalMathGateTrigger();
   }
@@ -2576,6 +2589,7 @@ async function joinAsStudent(savedSession = null) {
 
   myLocalWords.clear();
   myLocalScore = 0;
+  victoryModalDismissedForMatch = false;
   playerStreak = 0;
   lastTriggeredGlobalMilestone = savedSession ? (savedSession.lastTriggeredGlobalMilestone || 0) : 0;
   solvedMathCount = savedSession ? (savedSession.solvedMathCount || 0) : 0;
@@ -3179,6 +3193,7 @@ function openEliminatedModal(reason) {
 }
 
 function showFinalTop3Modal() {
+  if (victoryModalDismissedForMatch) return;
   closeQuizModal();
   document.getElementById("mathModal").classList.add("hidden");
   document.getElementById("recompositionModal").classList.add("hidden");
