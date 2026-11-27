@@ -652,7 +652,7 @@ th {
   border-radius: 14px;
   border: 2px solid rgba(56, 189, 248, 0.3);
   width: 100%;
-  max-width: min(86vw, 720px);
+  max-width: min(88vw, 760px);
   aspect-ratio: 1 / 1;
   touch-action: none;
   transition: box-shadow 0.35s ease, border-color 0.35s ease;
@@ -692,6 +692,39 @@ th {
   }
 }
 
+body.focus-wordsearch-mode .container {
+  max-width: 100% !important;
+  width: 100% !important;
+  padding: 48px 8px 14px 8px !important;
+  margin: 0 !important;
+}
+
+body.focus-wordsearch-mode .game-layout {
+  display: flex !important;
+  flex-direction: column-reverse !important;
+  gap: 10px !important;
+  align-items: center !important;
+}
+
+body.focus-wordsearch-mode .game-layout .card {
+  width: 100% !important;
+  max-width: 920px !important;
+  margin: 0 auto !important;
+  padding: 10px !important;
+}
+
+body.focus-wordsearch-mode .ws-grid {
+  width: min(94vw, 76dvh, 820px) !important;
+  height: min(94vw, 76dvh, 820px) !important;
+  max-width: none !important;
+  gap: 3px !important;
+  padding: 8px !important;
+}
+
+body.focus-wordsearch-mode .cell {
+  font-size: clamp(1.1rem, 3.6vw, 2.1rem) !important;
+}
+
 .cell.selected {
   background: linear-gradient(135deg, #38bdf8, #818cf8) !important;
   color: #050f24 !important;
@@ -714,14 +747,17 @@ th {
 }
 
 .modal-backdrop {
-  position: fixed;
-  inset: 0;
-  background: rgba(5, 15, 36, 0.9);
+  position: fixed !important;
+  inset: 0 !important;
+  width: 100vw !important;
+  height: 100dvh !important;
+  background: rgba(3, 9, 24, 0.96) !important;
+  backdrop-filter: blur(6px);
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 16px;
-  z-index: 10000;
+  z-index: 2147483647 !important;
 }
 
 .modal-card {
@@ -733,6 +769,8 @@ th {
   padding: 22px;
   position: relative;
   overflow: hidden;
+  max-height: 92dvh;
+  overflow-y: auto;
 }
 
 .modal-card.winner-showcase {
@@ -758,7 +796,7 @@ th {
   position: fixed;
   inset: 0;
   pointer-events: none;
-  z-index: 10001;
+  z-index: 2147483646;
   overflow: hidden;
 }
 
@@ -896,6 +934,6 @@ th {
   color: #fff;
   padding: 12px 18px;
   border-radius: 10px;
-  z-index: 11000;
+  z-index: 2147483647;
   font-weight: 700;
 }
