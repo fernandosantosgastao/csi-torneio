@@ -311,6 +311,7 @@ function readInitialRoute() {
 }
 
 function showRouteSection(route) {
+  document.body.classList.toggle("login-gate-active", route === "/login");
   document.querySelectorAll(".route-view").forEach(sec => sec.classList.add("hidden"));
   document.getElementById("navLoginBtn")?.classList.toggle("active", route === "/login");
   document.getElementById("navHomeBtn")?.classList.toggle("active", route === "/");
