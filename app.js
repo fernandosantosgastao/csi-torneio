@@ -158,13 +158,42 @@ function toast(msg) {
   setTimeout(() => el.remove(), 3500);
 }
 
+function slugifyRoomPath(pin, label = "") {
+  const cleanPin = String(pin || "").trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+  const cleanLabel = String(label || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+
+  if (cleanLabel && cleanLabel.startsWith(cleanPin)) {
+    return `/salas-online/${cleanLabel}`;
+  }
+  return cleanLabel ? `/salas-online/${cleanPin}-${cleanLabel}` : `/salas-online/${cleanPin}`;
+}
+
+function extractRoomSlugInfo(pathname) {
+  const clean = String(pathname || "").replace(/\/+$/, "");
+  const match = clean.match(/^\/salas-online\/([a-z0-9-]+)$/i);
+  if (!match) return null;
+  const slug = match[1].toLowerCase();
+  const pinMatch = slug.match(/^([a-z0-9]{4})(?:-|$)/i);
+  const pin = pinMatch ? pinMatch[1].toUpperCase() : "";
+  return { slug, pin };
+}
+
 function toggleMobileNavDrawer(forceClose = false) {
   const nav = document.getElementById("mainNavPills");
+  const backdrop = document.getElementById("mobileNavBackdrop");
   if (!nav) return;
   if (forceClose) {
     nav.classList.remove("mobile-open");
+    backdrop?.classList.remove("open");
   } else {
-    nav.classList.toggle("mobile-open");
+    const nextOpen = !nav.classList.toggle("mobile-open");
+    nav.classList.toggle("mobile-open", nextOpen);
+    backdrop?.classList.toggle("open", nextOpen);
   }
 }
 
@@ -201,16 +230,19 @@ async function toggleFullscreenMode() {
 document.addEventListener("fullscreenchange", syncFullscreenButtonLabel);
 document.addEventListener("webkitfullscreenchange", syncFullscreenButtonLabel);
 
-function saveActiveMatchContext() {
+function saveActiveMatchContext(extra = {}) {
   try {
     if (!activeRoomPin || !activePlayerNick) {
       localStorage.removeItem(ACTIVE_MATCH_STORAGE_KEY);
       return;
     }
+    const existing = JSON.parse(localStorage.getItem(ACTIVE_MATCH_STORAGE_KEY) || "{}");
     localStorage.setItem(ACTIVE_MATCH_STORAGE_KEY, JSON.stringify({
+      ...existing,
       pin: activeRoomPin,
       nick: activePlayerNick,
-      cls: activePlayerClass || "Geral"
+      cls: activePlayerClass || "Geral",
+      ...extra
     }));
   } catch (e) {}
 }
@@ -241,11 +273,7 @@ async function submitGateQuickCode() {
   if (!nick) return toast("Digite seu nome.");
   if (!/^[A-Z0-9]{4}$/.test(pin)) return toast("Digite o PIN de 4 letras.");
 
-  document.getElementById("quickCodeName").value = nick;
-  document.getElementById("quickCodeClass").value = cls;
-  document.getElementById("quickCodePin").value = pin;
-  await navigateToRoute("/");
-  await enterRoomByQuickCode();
+  await enterRoomByQuickCode({ nick, cls, pin });
 }
 
 async function submitGateAccount() {
@@ -377,16 +405,20 @@ function updateNavVisibility() {
 function normalizePath(pathname) {
   const p = String(pathname || "/").replace(/\/+$/, "") || "/";
   if (p === "/index.html") return "/";
+  if (extractRoomSlugInfo(p)) return p;
   if (VALID_ROUTES.includes(p)) return p;
   return "/";
 }
 
 function readInitialRoute() {
   const rawPath = String(window.location.pathname || "/").replace(/\/+$/, "") || "/";
+  if (extractRoomSlugInfo(rawPath)) {
+    return rawPath;
+  }
   if (rawPath === "/") {
     try {
       const saved = normalizePath(localStorage.getItem(LAST_ROUTE_KEY) || "/login");
-      if (saved && saved !== "/" && saved !== "/login") {
+      if (saved && saved !== "/" && saved !== "/login" && !extractRoomSlugInfo(saved)) {
         return saved;
       }
     } catch (e) {}
@@ -397,11 +429,12 @@ function readInitialRoute() {
 
 function showRouteSection(route) {
   toggleMobileNavDrawer(true);
+  const isRoomSlugRoute = !!extractRoomSlugInfo(route);
   document.body.classList.toggle("login-gate-active", route === "/login");
   document.querySelectorAll(".route-view").forEach(sec => sec.classList.add("hidden"));
   document.getElementById("navLoginBtn")?.classList.toggle("active", route === "/login");
   document.getElementById("navHomeBtn")?.classList.toggle("active", route === "/");
-  document.getElementById("navSalas24hBtn")?.classList.toggle("active", route === "/salas-online");
+  document.getElementById("navSalas24hBtn")?.classList.toggle("active", route === "/salas-online" || isRoomSlugRoute);
   document.getElementById("navCreateClassBtn")?.classList.toggle("active", route === "/gerador-de-salas");
   document.getElementById("navControlPanelBtn")?.classList.toggle("active", route === "/painel-de-controle");
 
@@ -411,6 +444,8 @@ function showRouteSection(route) {
     document.getElementById("routeHome")?.classList.remove("hidden");
   } else if (route === "/salas-online") {
     document.getElementById("routeSalasOnline")?.classList.remove("hidden");
+  } else if (isRoomSlugRoute) {
+    document.getElementById("activeArenaSection")?.classList.remove("hidden");
   } else if (route === "/gerador-de-salas") {
     document.getElementById("routeCreateClass")?.classList.remove("hidden");
   } else if (route === "/painel-de-controle") {
@@ -438,6 +473,11 @@ function recordRouteHistory(route, replaceState = false) {
 
 async function navigateToRoute(targetPath, replaceState = false) {
   const route = normalizePath(targetPath);
+  const slugInfo = extractRoomSlugInfo(route);
+
+  if (!slugInfo) {
+    document.getElementById("activeArenaSection")?.classList.add("hidden");
+  }
 
   if (authLoadedOnce && route === "/painel-de-controle" && !canAccessControlPanel()) {
     toast("Acesso restrito a administradores e moderadores autorizados.");
@@ -458,7 +498,9 @@ async function navigateToRoute(targetPath, replaceState = false) {
   recordRouteHistory(route, replaceState);
   showRouteSection(route);
 
-  if (route === "/") {
+  if (slugInfo) {
+    await openRoomBySlugRoute(slugInfo.pin, route);
+  } else if (route === "/") {
     await loadGlobalRankingTable();
   } else if (route === "/salas-online") {
     syncSalas24hView();
@@ -668,14 +710,30 @@ function ensurePlayerEntry(pk, name, cls) {
   return p;
 }
 
-async function activatePlayerArena(pin, nick, cls, roomRow, skipJoinEvent = false) {
+async function activatePlayerArena(pin, nick, cls, roomRow, skipJoinEvent = false, targetSlugPath = "") {
+  const roomLabel = roomRow.state?.roomLabel || `Sala ${pin}`;
+  const slugRoute = targetSlugPath || slugifyRoomPath(pin, roomLabel);
+
   activeRoomPin = pin;
   activeRoomState = roomRow.state;
   activeRoomMeta = roomRow;
   activePlayerNick = nick;
   activePlayerClass = cls;
   lastProcessedEventId = 0;
-  saveActiveMatchContext();
+
+  saveActiveMatchContext({
+    pin,
+    nick,
+    cls,
+    label: roomLabel,
+    slugRoute,
+    storyIdx: roomRow.state?.storyIdx || 0
+  });
+
+  if (window.location.pathname !== slugRoute) {
+    try { window.history.pushState({ route: slugRoute, sentinel: true }, "", slugRoute); } catch (e) {}
+  }
+  showRouteSection(slugRoute);
 
   const pKey = makePlayerKey(nick, cls);
   ensurePlayerEntry(pKey, nick, cls);
@@ -683,17 +741,74 @@ async function activatePlayerArena(pin, nick, cls, roomRow, skipJoinEvent = fals
   document.getElementById("activeArenaSection")?.classList.remove("hidden");
   document.getElementById("btnLeaveActiveRoom")?.classList.remove("hidden");
   document.getElementById("arenaPlayerTitle").textContent = nick;
-  document.getElementById("arenaRoomSub").textContent = `(${cls}) • Sala ${pin}`;
+  document.getElementById("arenaRoomSub").textContent = `(${cls}) • ${roomLabel} (${pin})`;
 
   renderArenaBoard(true);
   startTwoMinMathLoop();
   await fetchRecentEventsAndSubscribe(pin, skipJoinEvent ? null : pKey, skipJoinEvent ? null : nick, cls);
 }
 
-async function enterRoomByQuickCode() {
-  const nick = String(document.getElementById("quickCodeName")?.value || "").trim();
-  const cls = String(document.getElementById("quickCodeClass")?.value || "Geral").trim() || "Geral";
-  const pin = String(document.getElementById("quickCodePin")?.value || "").trim().toUpperCase();
+async function openRoomBySlugRoute(pin, slugRoute) {
+  const cleanPin = String(pin || "").trim().toUpperCase();
+  if (!/^[A-Z0-9]{4}$/.test(cleanPin)) {
+    return navigateToRoute("/salas-online", true);
+  }
+
+  let saved = {};
+  try { saved = JSON.parse(localStorage.getItem(ACTIVE_MATCH_STORAGE_KEY) || "{}"); } catch (e) {}
+
+  const nick = String(
+    saved?.nick ||
+    currentProfile?.full_name ||
+    (currentProfile?.email || authSession?.user?.email || "").split("@")[0] ||
+    "Jogador"
+  ).trim();
+  const cls = String(saved?.cls || "Geral").trim() || "Geral";
+  const storyIdx = Number(saved?.storyIdx || 0);
+
+  let roomRow = null;
+  let roomState = null;
+  try {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/salas?pin=eq.${encodeURIComponent(cleanPin)}&select=pin,owner_id,state,deleted_at,admin_locked,admin_deleted&limit=1`, {
+      cache: "no-store",
+      headers: { "apikey": SUPABASE_KEY }
+    });
+    if (res.ok) {
+      const rows = await res.json().catch(() => []);
+      if (Array.isArray(rows) && rows[0]) {
+        roomRow = rows[0];
+        if (roomRow.state?.grid) roomState = roomRow.state;
+      }
+    }
+  } catch (e) {}
+
+  if (!roomState) {
+    const story = STORIES[storyIdx % STORIES.length];
+    const built = buildWordSearchMatrix(`room_${cleanPin}`, story.words);
+    roomState = {
+      pin: cleanPin,
+      roomLabel: saved?.label || `Sala ${cleanPin}`,
+      started: true,
+      closed: false,
+      stage: 1,
+      storyIdx: storyIdx % STORIES.length,
+      grid: built.grid,
+      wordPlacements: built.placements,
+      claimedWords: {},
+      players: {}
+    };
+    roomRow = { pin: cleanPin, state: roomState };
+  } else {
+    roomRow.state = roomState;
+  }
+
+  await activatePlayerArena(cleanPin, nick, cls, roomRow, true, slugRoute);
+}
+
+async function enterRoomByQuickCode(overrideParams = null) {
+  const nick = String(overrideParams?.nick ?? document.getElementById("quickCodeName")?.value ?? "").trim();
+  const cls = String(overrideParams?.cls ?? document.getElementById("quickCodeClass")?.value ?? "Geral").trim() || "Geral";
+  const pin = String(overrideParams?.pin ?? document.getElementById("quickCodePin")?.value ?? "").trim().toUpperCase();
 
   if (!nick) return toast("Digite seu nome para entrar na sala.");
   if (!/^[A-Z0-9]{4}$/.test(pin)) return toast("Digite o código PIN de 4 caracteres da sala.");
@@ -723,7 +838,8 @@ async function enterRoomByQuickCode() {
     return toast(`A sala ${pin} está fechada ou bloqueada no momento.`);
   }
 
-  await activatePlayerArena(pin, nick, cls, roomRow, false);
+  const targetSlug = slugifyRoomPath(pin, roomRow.state.roomLabel || `Sala ${pin}`);
+  await activatePlayerArena(pin, nick, cls, roomRow, false, targetSlug);
   toast(`Entrou na sala ${pin}!`);
 }
 
@@ -842,10 +958,12 @@ async function enterRoom24h(pin, label, storyIdx = 0) {
     roomRow.state = roomState;
   }
 
-  await activatePlayerArena(pin, nick, cls, roomRow, false);
+  const targetSlug = slugifyRoomPath(pin, label);
+  await activatePlayerArena(pin, nick, cls, roomRow, false, targetSlug);
 }
 
 async function restoreMatchIfSavedAfterReload() {
+  if (extractRoomSlugInfo(window.location.pathname)) return;
   try {
     const raw = localStorage.getItem(ACTIVE_MATCH_STORAGE_KEY);
     if (!raw) return;
@@ -860,7 +978,8 @@ async function restoreMatchIfSavedAfterReload() {
     const row = Array.isArray(rows) ? rows[0] : null;
     if (!row || !row.state?.grid || row.deleted_at || row.admin_deleted || row.state?.adminDeleted) return;
 
-    await activatePlayerArena(saved.pin, saved.nick, saved.cls || "Geral", row, true);
+    const slugRoute = saved.slugRoute || slugifyRoomPath(saved.pin, row.state.roomLabel || saved.label || "");
+    await activatePlayerArena(saved.pin, saved.nick, saved.cls || "Geral", row, true, slugRoute);
     toast(`Partida restaurada na sala ${saved.pin}!`);
   } catch (e) {}
 }
@@ -1348,6 +1467,7 @@ function leaveCurrentMatchToHub() {
   clearSavedMatchContext();
   document.getElementById("activeArenaSection")?.classList.add("hidden");
   document.getElementById("btnLeaveActiveRoom")?.classList.add("hidden");
+  navigateToRoute("/salas-online");
 }
 
 function syncTeacherGeneratorView() {
