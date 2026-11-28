@@ -9,13 +9,25 @@
   <link rel="stylesheet" href="style.css">
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <style>
-    body.login-gate-active {
-      background: #020412;
+    body {
       margin: 0;
     }
 
+    body:not(.login-gate-active) .container {
+      padding-top: 72px !important;
+      margin-top: 0 !important;
+    }
+
+    body:not(.login-gate-active) .route-view > *:first-child {
+      margin-top: 0 !important;
+    }
+
+    body.login-gate-active {
+      background: #020412;
+    }
+
     body.login-gate-active header {
-      display: none;
+      display: none !important;
     }
 
     body.login-gate-active .container {
@@ -24,8 +36,8 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      padding: 40px 18px;
-      margin: 0 auto;
+      padding: 40px 18px !important;
+      margin: 0 auto !important;
     }
 
     body.login-gate-active #routeLoginGate {
@@ -33,15 +45,19 @@
     }
 
     header {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      min-height: 58px;
       background: #030718;
       border-bottom: 1px solid rgba(148, 163, 184, 0.16);
-      padding: 12px 20px;
+      padding: 10px 20px;
       display: flex;
       align-items: center;
       justify-content: space-between;
       gap: 16px;
-      position: relative;
-      z-index: 50;
+      z-index: 90;
     }
 
     .brand {
@@ -171,6 +187,10 @@
     }
 
     @media (max-width: 860px) {
+      body:not(.login-gate-active) .container {
+        padding-top: 66px !important;
+      }
+
       header {
         flex-wrap: nowrap;
         padding: 10px 12px;
@@ -1200,6 +1220,6 @@
     window.addEventListener("storage", updateDrawerUser);
   })();
 </script>
-<script src="app.js?v=29"></script>
+<script src="app.js?v=30"></script>
 </body>
 </html>
