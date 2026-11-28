@@ -432,6 +432,10 @@ function showRouteSection(route) {
   const isRoomSlugRoute = !!extractRoomSlugInfo(route);
   document.body.classList.toggle("login-gate-active", route === "/login");
   document.querySelectorAll(".route-view").forEach(sec => sec.classList.add("hidden"));
+  if (!isRoomSlugRoute) {
+    document.getElementById("activeArenaSection")?.classList.add("hidden");
+  }
+
   document.getElementById("navLoginBtn")?.classList.toggle("active", route === "/login");
   document.getElementById("navHomeBtn")?.classList.toggle("active", route === "/");
   document.getElementById("navSalas24hBtn")?.classList.toggle("active", route === "/salas-online" || isRoomSlugRoute);
@@ -474,10 +478,6 @@ function recordRouteHistory(route, replaceState = false) {
 async function navigateToRoute(targetPath, replaceState = false) {
   const route = normalizePath(targetPath);
   const slugInfo = extractRoomSlugInfo(route);
-
-  if (!slugInfo) {
-    document.getElementById("activeArenaSection")?.classList.add("hidden");
-  }
 
   if (authLoadedOnce && route === "/painel-de-controle" && !canAccessControlPanel()) {
     toast("Acesso restrito a administradores e moderadores autorizados.");
@@ -559,6 +559,7 @@ async function loadSessionAndProfile() {
         : {
             id: authSession.user.id,
             email: authSession.user.email,
+            full_name: authSession.user.user_metadata?.full_name || "",
             role: authSession.user.user_metadata?.role || "teacher",
             subscription_status: "active"
           };
@@ -566,6 +567,7 @@ async function loadSessionAndProfile() {
       currentProfile = {
         id: authSession.user.id,
         email: authSession.user.email,
+        full_name: authSession.user.user_metadata?.full_name || "",
         role: authSession.user.user_metadata?.role || "teacher",
         subscription_status: "active"
       };
@@ -711,7 +713,8 @@ function ensurePlayerEntry(pk, name, cls) {
 }
 
 async function activatePlayerArena(pin, nick, cls, roomRow, skipJoinEvent = false, targetSlugPath = "") {
-  const roomLabel = roomRow.state?.roomLabel || `Sala ${pin}`;
+  const preset24h = DEFAULT_24H_ROOMS.find(r => r.pin === pin);
+  const roomLabel = roomRow.state?.roomLabel || preset24h?.label || `Sala ${pin}`;
   const slugRoute = targetSlugPath || slugifyRoomPath(pin, roomLabel);
 
   activeRoomPin = pin;
@@ -727,8 +730,10 @@ async function activatePlayerArena(pin, nick, cls, roomRow, skipJoinEvent = fals
     cls,
     label: roomLabel,
     slugRoute,
-    storyIdx: roomRow.state?.storyIdx || 0
+    storyIdx: roomRow.state?.storyIdx ?? preset24h?.storyIdx ?? 0
   });
+
+  try { localStorage.setItem(LAST_ROUTE_KEY, slugRoute); } catch (e) {}
 
   if (window.location.pathname !== slugRoute) {
     try { window.history.pushState({ route: slugRoute, sentinel: true }, "", slugRoute); } catch (e) {}
@@ -757,6 +762,7 @@ async function openRoomBySlugRoute(pin, slugRoute) {
   let saved = {};
   try { saved = JSON.parse(localStorage.getItem(ACTIVE_MATCH_STORAGE_KEY) || "{}"); } catch (e) {}
 
+  const preset24h = DEFAULT_24H_ROOMS.find(r => r.pin === cleanPin);
   const nick = String(
     saved?.nick ||
     currentProfile?.full_name ||
@@ -764,7 +770,7 @@ async function openRoomBySlugRoute(pin, slugRoute) {
     "Jogador"
   ).trim();
   const cls = String(saved?.cls || "Geral").trim() || "Geral";
-  const storyIdx = Number(saved?.storyIdx || 0);
+  const storyIdx = Number(saved?.storyIdx ?? preset24h?.storyIdx ?? 0);
 
   let roomRow = null;
   let roomState = null;
@@ -787,7 +793,8 @@ async function openRoomBySlugRoute(pin, slugRoute) {
     const built = buildWordSearchMatrix(`room_${cleanPin}`, story.words);
     roomState = {
       pin: cleanPin,
-      roomLabel: saved?.label || `Sala ${cleanPin}`,
+      roomLabel: saved?.label || preset24h?.label || `Sala ${cleanPin}`,
+      is24h: !!preset24h,
       started: true,
       closed: false,
       stage: 1,
@@ -2492,14 +2499,14 @@ window.addEventListener("popstate", async () => {
 async function initPortal() {
   syncFullscreenButtonLabel();
   attachArenaPointerSelection();
-  const initialRoute = readInitialRoute();
-  routeStack = [initialRoute];
-  await navigateToRoute(initialRoute, true);
   await loadSessionAndProfile();
   await loadPlatformState();
+
+  const initialRoute = readInitialRoute();
+  routeStack = [initialRoute];
   authLoadedOnce = true;
 
-  const postAuthRoute = normalizePath(window.location.pathname);
+  const postAuthRoute = normalizePath(initialRoute);
   if (postAuthRoute === "/painel-de-controle" && !canAccessControlPanel()) {
     toast("Acesso restrito a administradores e moderadores autorizados.");
     await navigateToRoute("/", true);
